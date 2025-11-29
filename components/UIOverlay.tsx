@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit } from '../types';
+import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch } from '../types';
 import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS } from '../constants';
-import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, ActivitySquare, Waves as WavesIcon, Triangle, BoxSelect } from 'lucide-react';
+import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, ActivitySquare, Waves as WavesIcon, Triangle, BoxSelect, Save } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
 interface Props {
@@ -51,6 +51,12 @@ interface Props {
   currentGrowlName: string | null;
 
   onChop: () => void;
+
+  // Dynamic Preset Props
+  userPatches: UserPatch[]; // Updated
+  onLoadPatch: (p: UserPatch) => void; // Updated
+  onBigSave: () => void;
+  saveButtonText: string;
 }
 
 const FxButton = ({ label, active, onClick, icon: Icon, color }: { label: string, active: boolean, onClick: () => void, icon: any, color: string }) => {
@@ -214,7 +220,8 @@ const UIOverlay: React.FC<Props> = ({
   favorites, onSaveFavorite, onDeleteFavorite,
   isCameraActive, onToggleCamera, isSounding, onRandomize,
   crossFader, onCrossFaderChange, onRevertPreset,
-  onGrowl, currentGrowlName, onChop
+  onGrowl, currentGrowlName, onChop,
+  userPatches, onLoadPatch, onBigSave, saveButtonText
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [hasRandomized, setHasRandomized] = useState(false);
@@ -488,19 +495,14 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // Presets 1-0
+    // Presets 1-0 (Using UserPatches now)
     const key = e.key;
     const PRESET_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
     const pIdx = PRESET_KEYS.indexOf(key);
     
     if (pIdx >= 0) {
-        // Switch Preset
-        const PRESETS_LIST = [
-            DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET,
-            CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET
-        ];
-        if (PRESETS_LIST[pIdx]) {
-            onPresetChange(PRESETS_LIST[pIdx]);
+        if (userPatches[pIdx]) {
+            onLoadPatch(userPatches[pIdx]);
         }
         return;
     }
@@ -513,7 +515,7 @@ const UIOverlay: React.FC<Props> = ({
       onNotePlay(freq);
       setActiveMouseNote(semitone);
     }
-  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onOctaveChange, onCrossFaderChange, onSynthVolumeChange, onGateChange, onArpChange, onDrumChange, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl]);
+  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl, userPatches, onLoadPatch]);
 
   const handleKeyUp = useCallback((e: any) => {
       if (e.code === 'Space') setIsSpacePressed(false);
@@ -779,6 +781,17 @@ const UIOverlay: React.FC<Props> = ({
               )}
           </div>
         </div>
+        
+        {/* BIG SAVE BUTTON - Top Center */}
+        <div className="absolute left-1/2 -translate-x-1/2 top-4 pointer-events-auto">
+            <button
+                onClick={onBigSave}
+                className="bg-zinc-900 hover:bg-zinc-800 border-2 border-teal-500 text-teal-400 hover:text-teal-300 px-6 py-3 rounded-xl font-black text-xl italic shadow-[0_0_15px_rgba(45,212,191,0.4)] hover:shadow-[0_0_25px_rgba(45,212,191,0.6)] hover:-translate-y-1 transition-all duration-150 flex items-center gap-2 min-w-[200px] justify-center"
+            >
+                <Save size={20} />
+                <span>SAVE: {saveButtonText}</span>
+            </button>
+        </div>
 
         {/* TOP RIGHT CONTROLS */}
         <div className="flex flex-col items-end gap-2">
@@ -804,27 +817,23 @@ const UIOverlay: React.FC<Props> = ({
                 </button>
             </div>
 
-            {/* PRESETS ROW */}
-            <div className="flex gap-1 bg-black/60 backdrop-blur p-1 rounded-xl border border-white/10">
-                {[
-                    { l: '1', n: 'Default' }, { l: '2', n: 'Lava' }, { l: '3', n: 'Mercury' }, { l: '4', n: 'Glorp' }, { l: '5', n: 'Bzzzt' },
-                    { l: '6', n: 'Crystal' }, { l: '7', n: 'Void' }, { l: '8', n: 'Cloud' }, { l: '9', n: 'Rust' }, { l: '0', n: 'Neon' }
-                ].map((p, idx) => (
+            {/* PRESETS ROW - DYNAMIC */}
+            <div className="flex gap-1 bg-black/60 backdrop-blur p-1 rounded-xl border border-white/10 flex-wrap justify-end max-w-[400px]">
+                {userPatches.map((p, idx) => (
                     <button
-                        key={p.l}
+                        key={idx}
                         onMouseDown={() => {
-                            const PRESETS = [DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET];
-                            onPresetChange(PRESETS[idx]);
+                            onLoadPatch(p);
                         }}
                         className={`
-                            w-6 h-6 rounded flex items-center justify-center text-[9px] font-bold transition-all
-                            ${currentPreset.description === [DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET][idx].description
+                            w-auto px-2 h-6 rounded flex items-center justify-center text-[9px] font-bold transition-all min-w-[1.5rem]
+                            ${currentPreset.description === p.preset.description
                                 ? 'bg-teal-500 text-black shadow-lg scale-110' 
                                 : 'bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-300'}
                         `}
-                        title={p.n}
+                        title={p.preset.description}
                     >
-                        {p.l}
+                        {p.label}
                     </button>
                 ))}
             </div>

@@ -102,3 +102,14 @@ export interface GateSettings {
     division: GateDivision;
     mix: number; // 0 - 1 (dry/wet)
 }
+
+// Container for a full "Big Save" state
+export interface UserPatch {
+    label: string;
+    preset: SynthPreset;
+    fxState: FxState;
+    drumSettings: DrumSettings;
+    gateSettings: GateSettings;
+    arpSettings: ArpSettings;
+    octave: number;
+}

@@ -5,7 +5,9 @@ import UIOverlay from './components/UIOverlay';
 import WebcamMotion from './components/WebcamMotion';
 import { AudioEngine } from './services/audioEngine';
 import { DEFAULT_PRESET, GENRE_PRESETS, ALL_PRESETS, GATE_DIVISIONS } from './constants';
-import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, VisualShape, CameraMode, RenderStyle, GateDivision } from './types';
+import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, VisualShape, CameraMode, RenderStyle, GateDivision, UserPatch } from './types';
+
+const SLANG_TERMS = ["FRESH", "DOPE", "BITCHIN'", "SICK", "Yoooo", "NASTY", "MINT", "OOF", "FACK"];
 
 const App: React.FC = () => {
   const [playState, setPlayState] = useState<PlayState>(PlayState.IDLE);
@@ -26,6 +28,29 @@ const App: React.FC = () => {
   
   const [currentGrowlName, setCurrentGrowlName] = useState<string | null>(null);
 
+  // Defaults for initialization
+  const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
+  const defaultArp: ArpSettings = { enabled: false, bpm: 86, division: '1/8', mode: 'UP', octaveRange: 1, gate: 0.5, steps: 1 };
+  const defaultDrums: DrumSettings = { enabled: false, volume: 1.0, genre: 'BOOMBAP', kit: 'ACOUSTIC', pattern: GENRE_PRESETS['BOOMBAP'].pattern };
+  const defaultGate: GateSettings = { enabled: false, pattern: 'TRANCE', division: '1/32', mix: 1.0 };
+
+  // Dynamic Patch State (Full System State)
+  const [userPatches, setUserPatches] = useState<UserPatch[]>(
+      ALL_PRESETS.map((p, i) => ({
+          label: i === 9 ? '0' : (i + 1).toString(),
+          preset: p,
+          fxState: defaultFx,
+          drumSettings: defaultDrums,
+          gateSettings: defaultGate,
+          arpSettings: defaultArp,
+          octave: 0
+      }))
+  );
+  
+  const [saveSlotIndex, setSaveSlotIndex] = useState(0);
+  const [currentSlangIndex, setCurrentSlangIndex] = useState(0);
+
+
   // Visual Effect Sync
   const [activeVisualEffect, setActiveVisualEffect] = useState<number | null>(null);
   
@@ -45,40 +70,10 @@ const App: React.FC = () => {
     x: -1000, y: -1000, vx: 0, vy: 0, lastX: -1000, lastY: -1000, isClicked: false 
   });
 
-  const [fxState, setFxState] = useState<FxState>({
-    delay: false,
-    chorus: false,
-    highpass: false,
-    distortion: false,
-    phaser: false,
-    reverb: false,
-    crunch: false
-  });
-  
-  const [arpSettings, setArpSettings] = useState<ArpSettings>({
-      enabled: false,
-      bpm: 86,
-      division: '1/8', 
-      mode: 'UP',
-      octaveRange: 1,
-      gate: 0.5,
-      steps: 1 // Default to single note
-  });
-
-  const [drumSettings, setDrumSettings] = useState<DrumSettings>({
-      enabled: false,
-      volume: 1.0,
-      genre: 'BOOMBAP',
-      kit: 'ACOUSTIC',
-      pattern: GENRE_PRESETS['BOOMBAP'].pattern
-  });
-
-  const [gateSettings, setGateSettings] = useState<GateSettings>({
-      enabled: false,
-      pattern: 'TRANCE',
-      division: '1/32', // Default to 1/32 as "middle" speed
-      mix: 1.0
-  });
+  const [fxState, setFxState] = useState<FxState>(defaultFx);
+  const [arpSettings, setArpSettings] = useState<ArpSettings>(defaultArp);
+  const [drumSettings, setDrumSettings] = useState<DrumSettings>(defaultDrums);
+  const [gateSettings, setGateSettings] = useState<GateSettings>(defaultGate);
 
   // Track the user-selected baseline division to return to after modulation
   const baselineGateDivision = useRef<GateDivision>('1/32');
@@ -431,6 +426,59 @@ const App: React.FC = () => {
             executeRevert();
         }, 1000); 
     }
+  };
+
+  const handleBigSave = () => {
+    const term = SLANG_TERMS[currentSlangIndex];
+    
+    // Create new Patch object with ALL settings
+    const newPatch: UserPatch = {
+        label: `${term} (${saveSlotIndex + 1})`,
+        preset: { ...preset },
+        fxState: { ...fxState },
+        drumSettings: { ...drumSettings },
+        gateSettings: { ...gateSettings },
+        arpSettings: { ...arpSettings },
+        octave: octave
+    };
+
+    // Update Array
+    const newPatches = [...userPatches];
+    newPatches[saveSlotIndex] = newPatch;
+    setUserPatches(newPatches);
+
+    // Cycle logic
+    setSaveSlotIndex((prev) => (prev + 1) % 10);
+    setCurrentSlangIndex((prev) => (prev + 1) % SLANG_TERMS.length);
+  };
+
+  const handleLoadPatch = (patch: UserPatch) => {
+      // Set History before switching
+      setPreviousPreset(preset);
+      setPreviousFxState(fxState);
+      setPreviousDrumSettings(drumSettings);
+      setPreviousGateSettings(gateSettings);
+
+      // Restore All States
+      setPreset(patch.preset);
+      setFxState(patch.fxState);
+      setDrumSettings(patch.drumSettings);
+      setGateSettings(patch.gateSettings);
+      setArpSettings(patch.arpSettings);
+      setOctave(patch.octave);
+      
+      // Update Baseline Gate (User probably wants the gate speed stored in the patch)
+      baselineGateDivision.current = patch.gateSettings.division;
+
+      // Force Engine Update Immediately
+      if (audioEngineRef.current) {
+          audioEngineRef.current.setParams(patch.preset.audio);
+          audioEngineRef.current.setFx(patch.fxState);
+          audioEngineRef.current.setDrumSettings(patch.drumSettings);
+          audioEngineRef.current.setGateSettings(patch.gateSettings);
+          audioEngineRef.current.setArpSettings(patch.arpSettings);
+          audioEngineRef.current.setOctave(patch.octave);
+      }
   };
 
   // --- DROP LOGIC: Precise Revert on Target Step ---
@@ -796,6 +844,12 @@ const App: React.FC = () => {
         currentGrowlName={currentGrowlName}
 
         onChop={handleChop}
+
+        // Updated Props for Dynamic Patches
+        userPatches={userPatches}
+        onLoadPatch={handleLoadPatch}
+        onBigSave={handleBigSave}
+        saveButtonText={SLANG_TERMS[currentSlangIndex]}
       />
       
       <div className="md:hidden fixed bottom-0 w-full bg-yellow-500/10 text-yellow-200 text-[10px] p-1 text-center backdrop-blur-sm z-50 pointer-events-none">
