@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit } from '../types';
 import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS } from '../constants';
-import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe } from 'lucide-react';
+import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, ActivitySquare, Waves as WavesIcon, Triangle, BoxSelect } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
 interface Props {
@@ -45,6 +46,11 @@ interface Props {
 
   crossFader: number;
   onCrossFaderChange: (val: number) => void;
+
+  onGrowl: () => void;
+  currentGrowlName: string | null;
+
+  onChop: () => void;
 }
 
 const FxButton = ({ label, active, onClick, icon: Icon, color }: { label: string, active: boolean, onClick: () => void, icon: any, color: string }) => {
@@ -111,83 +117,86 @@ const VolumeSlider = ({ value, onChange, vertical = false }: { value: number, on
   </div>
 );
 
-// Updated Vibrant OOBLECK Logo SVG
+// Vibrant OOBLECK Logo SVG (Enhanced Cell-Shaded Version)
 const OobleckLogo = ({ onClick }: { onClick: () => void }) => (
   <div 
-    className="cursor-pointer relative group w-52 h-52 md:w-64 md:h-64 select-none z-20" 
+    className="cursor-pointer relative group w-64 h-64 select-none z-20" 
     onClick={onClick}
     role="button"
     aria-label="Randomize (Chaos Mode)"
   >
-    <svg viewBox="0 0 300 240" className="w-full h-full drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-visible">
+    <svg viewBox="0 0 300 240" className="w-full h-full drop-shadow-[0_15px_35px_rgba(0,0,0,0.8)] overflow-visible">
        <defs>
-         <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#4ade80" />
-            <stop offset="100%" stopColor="#22c55e" />
+         <linearGradient id="slimeGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#84cc16" />
+            <stop offset="50%" stopColor="#22c55e" />
+            <stop offset="100%" stopColor="#14532d" />
          </linearGradient>
-         <linearGradient id="textFill" x1="0" y1="0" x2="1" y2="1">
+         <linearGradient id="textGrad" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#fef08a" />
             <stop offset="50%" stopColor="#f472b6" />
             <stop offset="100%" stopColor="#a855f7" />
          </linearGradient>
-         <filter id="hardGlow">
-            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+         <filter id="neonGlow">
+            <feGaussianBlur stdDeviation="3.5" result="coloredBlur"/>
             <feMerge>
                 <feMergeNode in="coloredBlur"/>
                 <feMergeNode in="SourceGraphic"/>
             </feMerge>
          </filter>
+         <filter id="displacement">
+             <feTurbulence type="turbulence" baseFrequency="0.05" numOctaves="2" result="turbulence"/>
+             <feDisplacementMap in2="turbulence" in="SourceGraphic" scale="5" xChannelSelector="R" yChannelSelector="G"/>
+         </filter>
        </defs>
        
-       {/* Background Splatter Layer */}
-       <path d="M150,20 Q230,-10 260,60 Q290,130 220,180 Q150,230 80,180 Q10,130 40,60 Q70,-10 150,20 Z" 
-             fill="#1e1b4b" transform="translate(10,10)" />
-       <path d="M150,20 Q230,-10 260,60 Q290,130 220,180 Q150,230 80,180 Q10,130 40,60 Q70,-10 150,20 Z" 
-             fill="url(#bodyGrad)" stroke="black" strokeWidth="8" />
+       {/* Background Splatters (Cell Shaded Depth) */}
+       <path d="M160,10 Q250,-20 280,60 Q310,140 230,200 Q150,250 60,190 Q-10,130 30,50 Q70,-20 160,10 Z" 
+             fill="#3b0764" stroke="black" strokeWidth="12" />
              
-       {/* Inner Goo Detail */}
+       <path d="M150,20 Q230,-10 260,60 Q290,130 220,180 Q150,230 80,180 Q10,130 40,60 Q70,-10 150,20 Z" 
+             fill="url(#slimeGrad)" stroke="black" strokeWidth="6" />
+             
+       {/* Inner Highlights */}
        <path d="M100,50 Q150,40 200,60 Q230,100 200,140 Q150,160 100,140 Q70,100 100,50 Z" 
-             fill="#86efac" opacity="0.5" />
+             fill="#bef264" opacity="0.4" filter="url(#displacement)" />
 
-       {/* Text Layer */}
-       <g transform="translate(150,110) rotate(-4)">
+       {/* Typography Layer */}
+       <g transform="translate(150,115) rotate(-5)">
           {/* Deep Shadow */}
-          <text x="6" y="6" textAnchor="middle" fontSize="76" fontFamily="Arial Black, sans-serif" fontWeight="900"
-                fill="#312e81" stroke="#312e81" strokeWidth="20" letterSpacing="-4">OOBLECK</text>
+          <text x="8" y="8" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
+                fill="#1e1b4b" stroke="#1e1b4b" strokeWidth="24" letterSpacing="-4" opacity="0.8">OOBLECK</text>
           
           {/* Thick Outline */}
-          <text x="0" y="0" textAnchor="middle" fontSize="76" fontFamily="Arial Black, sans-serif" fontWeight="900"
-                fill="black" stroke="black" strokeWidth="20" letterSpacing="-4">OOBLECK</text>
+          <text x="0" y="0" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
+                fill="black" stroke="black" strokeWidth="22" letterSpacing="-4">OOBLECK</text>
           
-          {/* Inner Fill Outline */}
-          <text x="0" y="0" textAnchor="middle" fontSize="76" fontFamily="Arial Black, sans-serif" fontWeight="900"
-                fill="url(#textFill)" stroke="white" strokeWidth="4" letterSpacing="-4" paintOrder="stroke">OOBLECK</text>
+          {/* Main Gradient Text */}
+          <text x="0" y="0" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
+                fill="url(#textGrad)" stroke="white" strokeWidth="3" letterSpacing="-4" paintOrder="stroke">OOBLECK</text>
           
-          {/* Highlight / Gloss */}
-          <path d="M-130,-30 Q0,-50 130,-30" stroke="white" strokeWidth="8" fill="none" opacity="0.4" strokeLinecap="round" />
+          {/* Wet Highlight on Text */}
+          <path d="M-130,-35 Q-60,-55 0,-45 T130,-35" stroke="white" strokeWidth="6" fill="none" opacity="0.6" strokeLinecap="round" />
        </g>
 
-       {/* Dynamic Elements */}
-       {/* Drip 1 */}
-       <path d="M80,160 Q85,190 80,210" stroke="#22c55e" strokeWidth="8" fill="none" strokeLinecap="round" />
-       <circle cx="80" cy="218" r="5" fill="#22c55e" />
+       {/* Dynamic Drips */}
+       <path d="M80,175 Q85,200 80,225" stroke="#4ade80" strokeWidth="10" fill="none" strokeLinecap="round" />
+       <circle cx="80" cy="235" r="6" fill="#4ade80" />
        
-       {/* Drip 2 */}
-       <path d="M220,150 Q215,180 220,200" stroke="#22c55e" strokeWidth="6" fill="none" strokeLinecap="round" />
+       <path d="M220,165 Q215,190 220,215" stroke="#4ade80" strokeWidth="8" fill="none" strokeLinecap="round" />
 
-       {/* Zaps */}
-       <path d="M260,30 L280,10 L270,50 L290,30" stroke="#fde047" strokeWidth="4" fill="none" filter="url(#hardGlow)">
-          <animate attributeName="opacity" values="0;1;0" dur="0.8s" repeatCount="indefinite" />
+       {/* Electric Zaps */}
+       <path d="M260,30 L285,10 L275,50 L295,30" stroke="#fef08a" strokeWidth="4" fill="none" filter="url(#neonGlow)">
+          <animate attributeName="opacity" values="0;1;0" dur="0.4s" repeatCount="indefinite" />
        </path>
-       <path d="M20,160 L10,190 L30,180" stroke="#fde047" strokeWidth="4" fill="none" filter="url(#hardGlow)">
-          <animate attributeName="opacity" values="0;1;0" dur="1.2s" repeatCount="indefinite" />
+       <path d="M20,160 L5,190 L35,180" stroke="#fef08a" strokeWidth="4" fill="none" filter="url(#neonGlow)">
+          <animate attributeName="opacity" values="0;1;0" dur="0.6s" repeatCount="indefinite" />
        </path>
 
-       {/* Banner */}
-       <g transform="translate(150,165) rotate(2)">
-           <rect x="-110" y="-12" width="220" height="24" fill="black" transform="skewX(-20)" />
-           <rect x="-110" y="-12" width="220" height="24" fill="none" stroke="#2dd4bf" strokeWidth="2" transform="skewX(-20)" />
-           <text x="0" y="5" textAnchor="middle" fontSize="10" fontFamily="monospace" fontWeight="bold" fill="#2dd4bf" letterSpacing="1">FLUID SYNTHESIZER</text>
+       {/* Tech Banner */}
+       <g transform="translate(150,175) rotate(2)">
+           <path d="M-115,-14 L115,-14 L105,14 L-125,14 Z" fill="black" stroke="#2dd4bf" strokeWidth="2" />
+           <text x="0" y="5" textAnchor="middle" fontSize="11" fontFamily="monospace" fontWeight="bold" fill="#2dd4bf" letterSpacing="2">FLUID SYNTHESIZER</text>
        </g>
 
     </svg>
@@ -204,13 +213,121 @@ const UIOverlay: React.FC<Props> = ({
   synthVolume, onSynthVolumeChange,
   favorites, onSaveFavorite, onDeleteFavorite,
   isCameraActive, onToggleCamera, isSounding, onRandomize,
-  crossFader, onCrossFaderChange, onRevertPreset
+  crossFader, onCrossFaderChange, onRevertPreset,
+  onGrowl, currentGrowlName, onChop
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [hasRandomized, setHasRandomized] = useState(false);
   const [hasReverted, setHasReverted] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [isAltPressed, setIsAltPressed] = useState(false);
+  const [isEscPressed, setIsEscPressed] = useState(false);
+
+  // Animation Refs for Multiple Floating Buttons
+  // 2 Growl, 2 Chaos, 2 RunBack, 2 Chop
+  const growl1Ref = useRef<HTMLDivElement>(null);
+  const growl2Ref = useRef<HTMLDivElement>(null);
+  const chaos1Ref = useRef<HTMLDivElement>(null);
+  const chaos2Ref = useRef<HTMLDivElement>(null);
+  const runBack1Ref = useRef<HTMLDivElement>(null);
+  const runBack2Ref = useRef<HTMLDivElement>(null);
+  const chop1Ref = useRef<HTMLDivElement>(null);
+  const chop2Ref = useRef<HTMLDivElement>(null);
+
+  // Central Physics State for all 8 buttons (HOPPING LOGIC)
+  const physicsState = useRef([
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 280, height: 100 },
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 280, height: 100 },
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 220, height: 80 }, 
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 220, height: 80 },
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 240, height: 80 }, 
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 240, height: 80 },
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 260, height: 80 },
+      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 260, height: 80 },
+  ]);
+
+  // Hopping Animation for All Floating Buttons
+  useEffect(() => {
+    if (playState !== PlayState.PLAYING) return;
+    
+    // Init state on mount (center them)
+    const vwInit = window.innerWidth;
+    physicsState.current.forEach(p => {
+        p.lastJumpIdx = -1;
+        p.startX = vwInit / 2 - p.width / 2;
+        p.targetX = vwInit / 2 - p.width / 2;
+    });
+
+    const refs = [growl1Ref, growl2Ref, chaos1Ref, chaos2Ref, runBack1Ref, runBack2Ref, chop1Ref, chop2Ref];
+
+    let animId: number;
+    const animate = () => {
+        const now = Date.now();
+        const bpm = arpSettings.bpm || 120;
+        const beatDur = 60000 / bpm;
+        // 2 Jumps per Bar (1 Bar = 4 Beats) => 1 Jump = 2 Beats
+        const jumpDur = beatDur * 2; 
+
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        // Safe area: Above the dashboard (approx 280px high)
+        const dashboardHeight = 280;
+        const safeGroundY = vh - dashboardHeight; 
+        
+        physicsState.current.forEach((obj, i) => {
+            const btn = refs[i].current;
+            if (!btn) return;
+            
+            // Calculate current jump cycle
+            const jumpIndex = Math.floor(now / jumpDur);
+            const phase = (now % jumpDur) / jumpDur; // 0 to 1
+
+            // Trigger New Jump Target
+            if (jumpIndex > obj.lastJumpIdx) {
+                obj.lastJumpIdx = jumpIndex;
+                obj.startX = obj.targetX;
+                
+                // Pick new target X strictly within bounds
+                // "Never hit left or right wall"
+                const maxX = vw - obj.width;
+                obj.targetX = Math.random() * maxX;
+                
+                // Calculate max safe height for this jump
+                // "Never hit top of screen" => y >= 0
+                // ground is at safeGroundY - obj.height
+                // Jump must not exceed groundY (which would put it at 0)
+                const groundLevel = safeGroundY - obj.height;
+                const maxJumpH = groundLevel - 20; // 20px padding from top
+                const minJumpH = 100; // Minimum hop height
+                
+                obj.jumpHeight = minJumpH + Math.random() * (maxJumpH - minJumpH);
+            }
+
+            // Calculate Position
+            const groundLevel = safeGroundY - obj.height;
+            
+            // Y: Arch (Parabolic Hop)
+            const yArch = Math.sin(phase * Math.PI);
+            const yPos = groundLevel - (yArch * obj.jumpHeight);
+            
+            // X: Linear Move
+            const xPos = obj.startX + (obj.targetX - obj.startX) * phase;
+
+            // Apply
+            btn.style.left = '0px';
+            btn.style.top = '0px';
+            btn.style.transform = `translate(${xPos}px, ${yPos}px)`;
+        });
+
+        animId = requestAnimationFrame(animate);
+    };
+    
+    animId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animId);
+  }, [playState, arpSettings.bpm]);
 
   // Keyboard mapping
   const NOTE_MAP: Record<string, number> = {
@@ -264,7 +381,7 @@ const UIOverlay: React.FC<Props> = ({
       return rawIndex;
   };
 
-  const handleKeyDown = (e: any) => {
+  const handleKeyDown = useCallback((e: any) => {
     // Only trigger if not typing in an input
     if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
     if (e.repeat) return;
@@ -272,14 +389,25 @@ const UIOverlay: React.FC<Props> = ({
     // Spacebar Randomize
     if (e.code === 'Space') {
         e.preventDefault();
+        setIsSpacePressed(true);
         onRandomize();
         setHasRandomized(true);
         return;
     }
 
     if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsEscPressed(true);
         onRevertPreset();
         setHasReverted(true);
+        return;
+    }
+
+    // Growl Shortcut (Alt)
+    if (e.key === 'Alt') {
+        e.preventDefault(); // Prevent browser menu focus
+        setIsAltPressed(true);
+        onGrowl();
         return;
     }
 
@@ -385,11 +513,14 @@ const UIOverlay: React.FC<Props> = ({
       onNotePlay(freq);
       setActiveMouseNote(semitone);
     }
-  };
+  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onOctaveChange, onCrossFaderChange, onSynthVolumeChange, onGateChange, onArpChange, onDrumChange, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl]);
 
-  const handleKeyUp = () => {
+  const handleKeyUp = useCallback((e: any) => {
+      if (e.code === 'Space') setIsSpacePressed(false);
+      if (e.key === 'Alt') setIsAltPressed(false);
+      if (e.key === 'Escape') setIsEscPressed(false);
       setActiveMouseNote(null);
-  };
+  }, []);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -398,7 +529,7 @@ const UIOverlay: React.FC<Props> = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleKeyDown]); 
+  }, [handleKeyDown, handleKeyUp]); 
 
   const handleGenerate = async () => {
       if (!prompt.trim()) return;
@@ -424,9 +555,161 @@ const UIOverlay: React.FC<Props> = ({
   return (
     <div className="absolute inset-0 pointer-events-none p-4 flex flex-col justify-between z-10 overflow-hidden">
       
-      {/* Floating Hints */}
+      <style>{`
+        @keyframes wiggle {
+            0%, 100% { transform: rotate(-3deg); }
+            50% { transform: rotate(3deg); }
+        }
+      `}</style>
+
+      {/* Growl Notification - Highest Priority Alert (z-[60]) */}
+      {currentGrowlName && (
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60]">
+            <div className="bg-yellow-400 text-black font-black text-4xl px-8 py-4 -skew-x-12 border-4 border-black shadow-[8px_8px_0px_black] uppercase tracking-tighter animate-[wiggle_0.2s_ease-in-out_infinite]">
+                {currentGrowlName}
+            </div>
+        </div>
+      )}
+
+      {/* Funky Floating Buttons - Press Priority Layering */}
+      {playState === PlayState.PLAYING && (
+        <>
+            {/* 2 Growl Buttons - Priority 1 (Highest Interaction) -> z-[50] */}
+            {[growl1Ref, growl2Ref].map((ref, idx) => {
+                return (
+                <div 
+                    key={`growl-${idx}`}
+                    ref={ref}
+                    className="absolute top-0 left-0 z-[50] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+                >
+                     <button
+                        onClick={onGrowl}
+                        className={`
+                            group
+                            bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600
+                            text-white font-black text-5xl italic tracking-tighter
+                            px-10 py-6
+                            rounded-3xl
+                            border-4 border-black
+                            active:translate-y-2 active:shadow-none
+                            transition-all duration-200 ease-elastic
+                            flex items-center gap-4
+                            ${isAltPressed || currentGrowlName
+                                ? 'shadow-[12px_12px_0px_#fff] scale-110' // Simulate Hover/Pop
+                                : 'shadow-[8px_8px_0px_#000] hover:shadow-[12px_12px_0px_#fff] hover:scale-110'} 
+                        `}
+                     >
+                        <Skull className="w-12 h-12 animate-[bounce_0.5s_infinite]" strokeWidth={2.5} />
+                        <div className="flex flex-col items-start leading-none">
+                            <span className="drop-shadow-md">GRRRR!</span>
+                            <span className="text-xs font-mono font-bold opacity-70 tracking-widest">(ALT)</span>
+                        </div>
+                     </button>
+                </div>
+            )})}
+
+            {/* 2 Chaos Buttons - Priority 2 -> z-[40] */}
+            {[chaos1Ref, chaos2Ref].map((ref, idx) => (
+                <div 
+                    key={`chaos-${idx}`}
+                    ref={ref}
+                    className="absolute top-0 left-0 z-[40] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+                >
+                     <button
+                        onClick={() => { onRandomize(); setHasRandomized(true); }}
+                        className={`
+                            group
+                            bg-gradient-to-r from-red-500 via-purple-500 to-blue-600
+                            text-white font-black text-4xl italic tracking-tighter
+                            px-10 py-6
+                            rounded-full
+                            border-4 border-black
+                            active:translate-y-2 active:shadow-none
+                            transition-all duration-200 ease-elastic
+                            flex items-center gap-2
+                            ${isSpacePressed 
+                                ? 'shadow-[10px_10px_0px_#fff] scale-110' // Simulate Hover/Pop
+                                : 'shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110'}
+                        `}
+                     >
+                        <Wand2 className="w-8 h-8 animate-spin" strokeWidth={2.5} />
+                        <div className="flex flex-col items-center leading-none">
+                            <span className="drop-shadow-md">CHAOS</span>
+                            <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(SPACE BAR)</span>
+                        </div>
+                     </button>
+                </div>
+            ))}
+
+            {/* 2 CHOP IT UP Buttons - Priority 3 -> z-[35] */}
+            {[chop1Ref, chop2Ref].map((ref, idx) => (
+                <div 
+                    key={`chop-${idx}`}
+                    ref={ref}
+                    className="absolute top-0 left-0 z-[35] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+                >
+                     <button
+                        onClick={onChop}
+                        className={`
+                            group
+                            bg-gradient-to-r from-orange-400 via-red-500 to-yellow-500
+                            text-white font-black text-4xl italic tracking-tighter
+                            px-8 py-5
+                            rounded-2xl
+                            border-4 border-black
+                            active:translate-y-2 active:shadow-none
+                            transition-all duration-200 ease-elastic
+                            flex items-center gap-3
+                            shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110
+                        `}
+                     >
+                        <Scissors className="w-8 h-8" strokeWidth={3} />
+                        <div className="flex flex-col items-start leading-none">
+                            <span className="drop-shadow-md">CHOP IT UP</span>
+                            <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(CLICK)</span>
+                        </div>
+                     </button>
+                </div>
+            ))}
+
+            {/* 2 Run it Back Buttons - Priority 4 (Lowest Interaction) -> z-[30] */}
+            {[runBack1Ref, runBack2Ref].map((ref, idx) => (
+                <div 
+                    key={`runback-${idx}`}
+                    ref={ref}
+                    className="absolute top-0 left-0 z-[30] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+                >
+                     <button
+                        onClick={() => { onRevertPreset(); setHasReverted(true); }}
+                        className={`
+                            group
+                            bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600
+                            text-white font-black text-4xl italic tracking-tighter
+                            px-8 py-5
+                            rounded-2xl
+                            border-4 border-black
+                            active:translate-y-2 active:shadow-none
+                            transition-all duration-200 ease-elastic
+                            flex items-center gap-3
+                            ${isEscPressed 
+                                ? 'shadow-[10px_10px_0px_#fff] scale-110' // Simulate Hover/Pop
+                                : 'shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110'}
+                        `}
+                     >
+                        <RotateCcw className="w-8 h-8" strokeWidth={3} />
+                        <div className="flex flex-col items-start leading-none">
+                            <span className="drop-shadow-md">Run it Back</span>
+                            <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(ESC)</span>
+                        </div>
+                     </button>
+                </div>
+            ))}
+        </>
+      )}
+
+      {/* Floating Hints - Ensure on top of buttons (z-[70]) */}
       {!hasRandomized && (
-         <div className="fixed top-24 left-1/2 -translate-x-1/2 animate-bounce flex flex-col items-center gap-2 opacity-80 z-50">
+         <div className="fixed top-24 left-1/2 -translate-x-1/2 animate-bounce flex flex-col items-center gap-2 opacity-80 z-[70]">
              <div className="bg-white/10 backdrop-blur px-4 py-2 rounded-full border border-white/20 text-teal-300 font-mono text-sm flex items-center gap-2">
                  <span className="border border-teal-300/50 rounded px-1 text-xs">SPACE</span>
                  <span>to Randomize</span>
@@ -436,7 +719,7 @@ const UIOverlay: React.FC<Props> = ({
       )}
 
       {hasRandomized && !hasReverted && (
-           <div className="fixed top-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-80 z-50 pointer-events-none">
+           <div className="fixed top-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-80 z-[70] pointer-events-none">
              <div className="bg-black/80 backdrop-blur px-4 py-2 rounded-lg border border-white/20 text-white font-mono text-xs flex items-center gap-4 shadow-xl">
                  <div className="flex items-center gap-2">
                      <span className="border border-white/40 rounded px-1.5 py-0.5 bg-white/10">SPACE</span>
@@ -592,7 +875,7 @@ const UIOverlay: React.FC<Props> = ({
           {/* Top Control Deck - Responsive 12-Column Grid */}
           <div className="grid grid-cols-12 divide-x-2 divide-zinc-800 bg-zinc-900 h-40">
             
-            {/* MODULE 1: CORE (AI + Physics) - 2 Cols */}
+            {/* MODULE 1: CORE (AI + Physics) - 2 Cols (Growl Removed) */}
             <div className="col-span-2 p-2 flex flex-col justify-between">
                 <div className="flex items-center gap-2 text-purple-400 mb-1 border-b border-zinc-800 pb-1">
                     <Cpu size={12} />
@@ -649,9 +932,9 @@ const UIOverlay: React.FC<Props> = ({
                      </button>
                  </div>
                  
-                 <div className="flex flex-col justify-between h-full pt-1">
+                 <div className="flex flex-col h-full pt-1 gap-1">
                      {/* Genre Grid */}
-                     <div className="grid grid-cols-4 gap-0.5 mb-2">
+                     <div className="grid grid-cols-4 gap-0.5">
                          {['HIPHOP', 'DISCO', 'HOUSE', 'DUBSTEP', 'METAL', 'FUNK', 'ROCK', 'BOOMBAP'].map((g) => (
                              <button
                                 key={g}
@@ -668,23 +951,50 @@ const UIOverlay: React.FC<Props> = ({
                          ))}
                      </div>
 
-                     {/* Step Sequencer Visual */}
-                     <div className="flex gap-px h-6 bg-black rounded-sm p-0.5 border border-zinc-700 shadow-inner mb-2">
-                         {drumSettings.pattern.map((step, i) => (
-                             <div 
-                                key={i} 
-                                className={`
-                                    flex-1 rounded-[1px] transition-all duration-75
-                                    ${i === currentStep 
-                                        ? 'bg-white shadow-[0_0_8px_white] z-10' 
-                                        : (step.kick || step.snare ? 'bg-pink-500/80' : 'bg-zinc-800')}
-                                `}
-                             />
+                     {/* 4-Layer Step Sequencer */}
+                     <div className="flex-1 flex flex-col gap-0.5 min-h-0 bg-black/20 rounded-sm p-1 border border-zinc-800">
+                         {(['kick', 'snare', 'hihat', 'clap'] as const).map((layer) => (
+                             <div key={layer} className="flex gap-px items-center h-full">
+                                 {/* Label */}
+                                 <div className="w-6 text-[6px] font-bold text-zinc-500 uppercase text-right pr-1">
+                                    {layer === 'hihat' ? 'HAT' : layer.substring(0,3)}
+                                 </div>
+                                 {/* Steps */}
+                                 <div className="flex-1 flex gap-px h-full">
+                                     {drumSettings.pattern.map((step, i) => (
+                                         <button 
+                                            key={i}
+                                            onClick={() => {
+                                                const newPattern = [...drumSettings.pattern];
+                                                newPattern[i] = { ...newPattern[i], [layer]: !newPattern[i][layer] };
+                                                onDrumChange({ ...drumSettings, pattern: newPattern });
+                                            }}
+                                            className={`
+                                                flex-1 rounded-[1px] transition-colors
+                                                ${step[layer] 
+                                                    ? (layer === 'kick' ? 'bg-pink-500' : layer === 'snare' ? 'bg-cyan-500' : layer === 'hihat' ? 'bg-yellow-500' : 'bg-purple-500') 
+                                                    : 'bg-zinc-800 hover:bg-zinc-700'}
+                                                ${i === currentStep ? 'brightness-150 border-white/50 border' : ''}
+                                            `}
+                                         />
+                                     ))}
+                                 </div>
+                             </div>
                          ))}
                      </div>
 
                      {/* Kit & Mix */}
-                     <div className="flex gap-2 items-center justify-between">
+                     <div className="flex gap-2 items-center justify-start mt-0.5">
+                        <div className="flex items-center gap-1.5 bg-zinc-800/50 rounded-sm px-1 py-0.5 border border-zinc-700/50 w-20">
+                             <span className="text-[7px] font-bold text-pink-500">DRM</span>
+                             <input 
+                                type="range" min="0" max="1" step="0.01"
+                                value={crossFader}
+                                onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))}
+                                className="flex-1 min-w-0 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize"
+                             />
+                             <span className="text-[7px] font-bold text-teal-500">SYN</span>
+                         </div>
                          <select 
                             value={drumSettings.kit} 
                             onChange={(e) => onDrumChange({...drumSettings, kit: e.target.value as DrumKit})}
@@ -692,17 +1002,6 @@ const UIOverlay: React.FC<Props> = ({
                          >
                             {DRUM_KITS.map(kit => <option key={kit} value={kit}>{kit}</option>)}
                          </select>
-                         
-                         <div className="flex items-center gap-1.5 w-1/2 bg-zinc-800/50 rounded-sm px-1 py-0.5 border border-zinc-700/50 w-20">
-                             <span className="text-[7px] font-bold text-pink-500">DRM</span>
-                             <input 
-                                type="range" min="0" max="1" step="0.01"
-                                value={crossFader}
-                                onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))}
-                                className="flex-1 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize"
-                             />
-                             <span className="text-[7px] font-bold text-teal-500">SYN</span>
-                         </div>
                      </div>
                  </div>
             </div>
@@ -754,64 +1053,73 @@ const UIOverlay: React.FC<Props> = ({
                  </div>
             </div>
 
-            {/* MODULE 4: SEQUENCE (Arp) - Reduced to 2 Cols, Single Column Flow */}
+            {/* MODULE 4: SYNTH (Osc & ADSR) - Replaced SEQ */}
             <div className="col-span-2 p-2 flex flex-col justify-between">
                  <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
                      <div className="flex items-center gap-1 text-yellow-400">
-                         <Grid3X3 size={12} />
-                         <span className="text-[9px] font-black uppercase tracking-widest font-mono">SEQ</span>
+                         <ActivitySquare size={12} />
+                         <span className="text-[9px] font-black uppercase tracking-widest font-mono">SYNTH</span>
                      </div>
-                     <button 
-                        onClick={() => onArpChange({...arpSettings, enabled: !arpSettings.enabled})}
-                        className={`w-5 h-3 rounded transition-colors border border-black/30 ${arpSettings.enabled ? 'bg-yellow-600 shadow-[0_0_8px_rgba(234,179,8,0.6)]' : 'bg-zinc-700'}`}
-                     >
-                         <div className={`w-1.5 h-full bg-white/80 transition-transform ${arpSettings.enabled ? 'translate-x-2' : ''}`} />
-                     </button>
                  </div>
                  
-                 <div className="flex flex-col gap-1.5 h-full justify-between pt-1">
-                     <div className="space-y-1">
-                         <div className="flex justify-between items-center">
-                            <label className="text-[7px] text-zinc-500 font-bold uppercase w-6">BPM</label>
-                            <input 
-                                type="range" min="60" max="240" 
-                                value={arpSettings.bpm} 
-                                onChange={(e) => onArpChange({...arpSettings, bpm: parseInt(e.target.value)})}
-                                className="flex-1 h-1 bg-zinc-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-yellow-500 [&::-webkit-slider-thumb]:rounded-[1px] mx-1"
-                            />
-                            <span className="text-[7px] text-yellow-500 font-mono font-bold w-4 text-right">{arpSettings.bpm}</span>
-                         </div>
-                         <div className="flex justify-between items-center">
-                            <label className="text-[7px] text-zinc-500 font-bold uppercase w-6">Step</label>
-                            <input 
-                                 type="range" min="1" max="16" step="1"
-                                 value={arpSettings.steps}
-                                 onChange={(e) => onArpChange({...arpSettings, steps: parseInt(e.target.value)})}
-                                 className="flex-1 h-1 bg-zinc-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-yellow-500 [&::-webkit-slider-thumb]:rounded-[1px] mx-1"
-                             />
-                             <span className="text-[7px] text-yellow-500 font-mono font-bold w-4 text-right">{arpSettings.steps}</span>
-                        </div>
+                 <div className="flex flex-col h-full justify-between pt-1 gap-1">
+                     {/* Oscillators */}
+                     <div className="flex gap-2">
+                        {[1, 2].map(num => {
+                            const oscKey = `osc${num}Type` as keyof typeof currentPreset.audio;
+                            const type = currentPreset.audio[oscKey] as string;
+                            const Icon = type === 'sine' ? WavesIcon : type === 'square' ? Square : type === 'triangle' ? Triangle : Activity;
+                            
+                            return (
+                                <div key={num} className="flex-1 bg-black border border-zinc-700 rounded-sm p-1 flex flex-col items-center">
+                                    <span className="text-[6px] text-zinc-500 font-bold uppercase mb-1">OSC {num}</span>
+                                    <button 
+                                        onClick={() => {
+                                            const types = ['sine', 'square', 'sawtooth', 'triangle'];
+                                            const idx = types.indexOf(type);
+                                            const nextType = types[(idx + 1) % 4];
+                                            onPresetChange({
+                                                ...currentPreset,
+                                                audio: { ...currentPreset.audio, [oscKey]: nextType }
+                                            });
+                                        }}
+                                        className="text-yellow-500 hover:text-yellow-300 transition-colors"
+                                    >
+                                        <Icon size={14} />
+                                    </button>
+                                </div>
+                            );
+                        })}
                      </div>
 
-                     <div className="flex items-center gap-1">
-                        <select 
-                                 value={arpSettings.division}
-                                 onChange={(e) => onArpChange({...arpSettings, division: e.target.value as GateDivision})}
-                                 className="flex-1 bg-black border border-zinc-700 rounded-sm px-0.5 py-0.5 text-yellow-500 text-[8px] focus:outline-none min-w-0"
-                             >
-                                 {GATE_DIVISIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                         </select>
-                         <div className="flex gap-0.5">
-                             {['UP', 'DWN', 'RND'].map(m => (
-                                 <button 
-                                    key={m}
-                                    onClick={() => onArpChange({...arpSettings, mode: m === 'RND' ? 'RANDOM' : (m === 'DWN' ? 'DOWN' : 'UP') as any})}
-                                    className={`px-1 text-[5px] font-bold py-1 rounded-sm uppercase tracking-tighter ${arpSettings.mode.includes(m) || (m==='RND' && arpSettings.mode==='RANDOM') || (m==='DWN' && arpSettings.mode==='DOWN') ? 'bg-yellow-600 text-black' : 'bg-zinc-800 text-zinc-500'}`}
-                                 >
-                                     {m}
-                                 </button>
-                             ))}
-                        </div>
+                     {/* ADSR Sliders */}
+                     <div className="flex justify-between items-end flex-1 gap-1 mt-1 bg-black/30 rounded-sm p-1 border border-zinc-800">
+                        {['attack', 'decay', 'sustain', 'release'].map((param) => {
+                            const val = currentPreset.audio[param as keyof typeof currentPreset.audio] as number;
+                            const max = param === 'sustain' ? 1 : (param === 'release' ? 5 : 2); // Max values
+                            
+                            return (
+                                <div key={param} className="flex flex-col items-center h-full gap-0.5 flex-1">
+                                    <div className="relative w-2 h-full bg-zinc-800 rounded-full overflow-hidden">
+                                        <div 
+                                            className="absolute bottom-0 w-full bg-yellow-500 rounded-b-full"
+                                            style={{ height: `${(val / max) * 100}%` }}
+                                        />
+                                        <input
+                                            type="range" min="0.001" max={max} step="0.01"
+                                            value={val}
+                                            onChange={(e) => onPresetChange({
+                                                ...currentPreset,
+                                                audio: { ...currentPreset.audio, [param]: parseFloat(e.target.value) }
+                                            })}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-slider-vertical"
+                                            style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
+                                        />
+                                    </div>
+                                    <span className="text-[5px] text-zinc-500 font-bold uppercase">{param[0]}</span>
+                                </div>
+                            )
+                        })}
                      </div>
                  </div>
             </div>

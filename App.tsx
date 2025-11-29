@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import FluidCanvas from './components/FluidCanvas';
 import UIOverlay from './components/UIOverlay';
@@ -23,6 +24,8 @@ const App: React.FC = () => {
   const [isSounding, setIsSounding] = useState(false);
   const [crossFader, setCrossFader] = useState(0.5); // 0 = Drums, 1 = Synth, 0.5 = Mix
   
+  const [currentGrowlName, setCurrentGrowlName] = useState<string | null>(null);
+
   // Visual Effect Sync
   const [activeVisualEffect, setActiveVisualEffect] = useState<number | null>(null);
   
@@ -79,6 +82,16 @@ const App: React.FC = () => {
 
   // Track the user-selected baseline division to return to after modulation
   const baselineGateDivision = useRef<GateDivision>('1/32');
+  
+  // Drop Logic Refs
+  const waitingForDropRef = useRef(false);
+  const dropTargetStepRef = useRef<number | null>(null);
+  
+  // Snapshot Refs
+  const preGrowlGateSettings = useRef<GateSettings | null>(null);
+  const preGrowlPreset = useRef<SynthPreset | null>(null);
+  const preGrowlFxState = useRef<FxState | null>(null);
+  const preGrowlBaselineGate = useRef<GateDivision>('1/32');
   
   const audioEngineRef = useRef<AudioEngine | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -212,6 +225,224 @@ const App: React.FC = () => {
         });
     }
   }, [drumSettings, crossFader]);
+
+  const handleRevertPreset = useCallback(() => {
+      if (previousPreset) {
+          const tempPreset = preset;
+          setPreset(previousPreset);
+          setPreviousPreset(tempPreset);
+
+          if (previousFxState) {
+              const tempFx = fxState;
+              setFxState(previousFxState);
+              setPreviousFxState(tempFx);
+          }
+          
+          if (previousDrumSettings) {
+             const tempDrums = drumSettings;
+             setDrumSettings(previousDrumSettings);
+             setPreviousDrumSettings(tempDrums);
+          }
+          
+          if (previousGateSettings) {
+             const tempGate = gateSettings;
+             setGateSettings(previousGateSettings);
+             setPreviousGateSettings(tempGate);
+             // Also restore baseline if gate was reverted
+             baselineGateDivision.current = previousGateSettings.division;
+          }
+      }
+  }, [previousPreset, previousFxState, previousDrumSettings, previousGateSettings, preset, fxState, drumSettings, gateSettings]);
+
+  const executeRevert = () => {
+      // 1. Cancel Engine Growl (Only if audio engine exists and ready)
+      if (audioEngineRef.current) {
+           audioEngineRef.current.cancelGrowl();
+      }
+
+      setCurrentGrowlName(null);
+
+      // 2. Restore Snapshot
+      if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
+      if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
+      
+      let restoredGate = preGrowlGateSettings.current;
+      if (!restoredGate) {
+          restoredGate = { enabled: true, pattern: 'TRANCE', division: '1/32', mix: 1.0 };
+      }
+      setGateSettings(restoredGate);
+      baselineGateDivision.current = preGrowlBaselineGate.current;
+
+      // 3. FORCE ENGINE UPDATE IMMEDIATELY
+      if (audioEngineRef.current) {
+           audioEngineRef.current.setParams(preGrowlPreset.current || preset);
+           audioEngineRef.current.setFx(preGrowlFxState.current || fxState);
+           audioEngineRef.current.setGateSettings(restoredGate);
+      }
+      
+      // Reset Flags
+      waitingForDropRef.current = false;
+      dropTargetStepRef.current = null;
+  };
+
+  const handleGrowl = () => {
+    if (!audioEngineRef.current) return;
+    
+    // Ignore if already waiting for a drop to avoid overwrite issues
+    if (waitingForDropRef.current) return;
+
+    // 1. Snapshot CURRENT state (Pre-Growl)
+    // Only snapshot if the gate is currently enabled/valid. If we are in a weird state, rely on existing.
+    if (gateSettings.enabled) {
+        preGrowlGateSettings.current = { ...gateSettings };
+        preGrowlBaselineGate.current = baselineGateDivision.current;
+    }
+    preGrowlPreset.current = preset;
+    preGrowlFxState.current = fxState;
+
+    // 2. Random ID from 1 to 10
+    const id = Math.floor(Math.random() * 10) + 1;
+    audioEngineRef.current.triggerGrowl(id);
+    
+    // Randomize Visuals for chaos
+    const shapes: VisualShape[] = ['triangle', 'hexagon', 'star'];
+    const styles: RenderStyle[] = ['wireframe', 'scanner', 'mosaic'];
+    setPreset(prev => ({
+        ...prev,
+        visual: {
+            ...prev.visual,
+            shape: shapes[Math.floor(Math.random() * shapes.length)],
+            renderStyle: styles[Math.floor(Math.random() * styles.length)],
+            glowIntensity: 1.0,
+            cameraMode: 'shake'
+        }
+    }));
+    
+    const names = [
+        "Growl", "Robotic FM", "Yoi", "Screech", "Reese", 
+        "Laser", "Donk Hybrid", "Beast Roar", "Grind", "Machine"
+    ];
+    
+    setCurrentGrowlName(names[id - 1]);
+    setTimeout(() => setCurrentGrowlName(null), 1500);
+
+    if (playState === PlayState.IDLE) {
+        setPlayState(PlayState.PLAYING);
+    }
+
+    // 3. FORCE GATE OFF IMMEDIATELY (Growl logic)
+    setGateSettings(prev => ({ ...prev, enabled: false }));
+    audioEngineRef.current.setGateSettings({ ...gateSettings, enabled: false });
+
+    // 4. CHECK RHYTHM STATUS
+    if (drumSettings.enabled) {
+        // ANALYZE PATTERN for Next Drop
+        const pattern = drumSettings.pattern;
+        const len = pattern.length;
+        let targetStep = -1;
+
+        // Search forward in current loop
+        for (let i = currentStep + 1; i < len; i++) {
+            if (pattern[i].kick || pattern[i].snare) {
+                targetStep = i;
+                break;
+            }
+        }
+        // If not found, search from start (wrap around)
+        if (targetStep === -1) {
+            for (let i = 0; i <= currentStep; i++) {
+                if (pattern[i].kick || pattern[i].snare) {
+                    targetStep = i;
+                    break;
+                }
+            }
+        }
+        // Fallback
+        if (targetStep === -1) targetStep = 0;
+
+        dropTargetStepRef.current = targetStep;
+        waitingForDropRef.current = true;
+    } else {
+        // Rhythm is OFF: Use Time-based fallback
+        setTimeout(() => {
+            executeRevert();
+        }, 1000); 
+    }
+  };
+
+  const handleChop = () => {
+      // 1. Snapshot State (Same as Growl)
+      if (waitingForDropRef.current) return;
+
+      preGrowlPreset.current = preset;
+      preGrowlFxState.current = fxState;
+
+      // Determine return state:
+      // If gate was enabled, use it.
+      // If gate was disabled, force return to 1/32 enabled (per user requirement)
+      if (gateSettings.enabled) {
+          preGrowlGateSettings.current = { ...gateSettings };
+          preGrowlBaselineGate.current = baselineGateDivision.current;
+      } else {
+          preGrowlGateSettings.current = { 
+              enabled: true, 
+              pattern: 'TRANCE', 
+              division: '1/32', 
+              mix: 1.0 
+          };
+          preGrowlBaselineGate.current = '1/32';
+      }
+
+      // 2. Apply Chop (Gate 1/64 ON)
+      baselineGateDivision.current = '1/64';
+      setGateSettings(prev => ({
+          ...prev,
+          enabled: true,
+          division: '1/64'
+      }));
+
+      // 3. Initiate Drop Logic (Revert on next kick/snare)
+      if (drumSettings.enabled) {
+        // ANALYZE PATTERN for Next Drop
+        const pattern = drumSettings.pattern;
+        const len = pattern.length;
+        let targetStep = -1;
+
+        for (let i = currentStep + 1; i < len; i++) {
+            if (pattern[i].kick || pattern[i].snare) {
+                targetStep = i;
+                break;
+            }
+        }
+        if (targetStep === -1) {
+            for (let i = 0; i <= currentStep; i++) {
+                if (pattern[i].kick || pattern[i].snare) {
+                    targetStep = i;
+                    break;
+                }
+            }
+        }
+        if (targetStep === -1) targetStep = 0;
+
+        dropTargetStepRef.current = targetStep;
+        waitingForDropRef.current = true;
+    } else {
+        setTimeout(() => {
+            executeRevert();
+        }, 1000); 
+    }
+  };
+
+  // --- DROP LOGIC: Precise Revert on Target Step ---
+  useEffect(() => {
+    // Only process drop logic if drums are enabled AND we are waiting for a drop
+    if (drumSettings.enabled && waitingForDropRef.current && dropTargetStepRef.current !== null) {
+        // If we hit the target step
+        if (currentStep === dropTargetStepRef.current) {
+            executeRevert();
+        }
+    }
+  }, [currentStep, drumSettings.enabled]);
 
   // --- QUANTIZED VISUAL EFFECTS ---
   // Runs on a 32nd note interval based on BPM to rate-limit triggers rhythmically
@@ -363,32 +594,6 @@ const App: React.FC = () => {
     }));
   };
 
-  const handleRevertPreset = () => {
-      if (previousPreset) {
-          const tempPreset = preset;
-          setPreset(previousPreset);
-          setPreviousPreset(tempPreset);
-
-          if (previousFxState) {
-              const tempFx = fxState;
-              setFxState(previousFxState);
-              setPreviousFxState(tempFx);
-          }
-          
-          if (previousDrumSettings) {
-             const tempDrums = drumSettings;
-             setDrumSettings(previousDrumSettings);
-             setPreviousDrumSettings(tempDrums);
-          }
-          
-          if (previousGateSettings) {
-             const tempGate = gateSettings;
-             setGateSettings(previousGateSettings);
-             setPreviousGateSettings(tempGate);
-          }
-      }
-  };
-
   const handleScaleFrequenciesChange = (freqs: number[]) => {
       if (audioEngineRef.current) {
           audioEngineRef.current.setScaleFrequencies(freqs);
@@ -436,6 +641,10 @@ const App: React.FC = () => {
     
     const chaosPreset: SynthPreset = {
         ...randomPreset,
+        audio: {
+            ...randomPreset.audio,
+            sustain: 1.0, // Force Sustain to 100% per user request
+        },
         visual: {
             shape: shapes[Math.floor(Math.random() * shapes.length)],
             cameraMode: cams[Math.floor(Math.random() * cams.length)],
@@ -489,40 +698,23 @@ const App: React.FC = () => {
       }
 
       switch (zoneIndex) {
-          case 0: // Top Left: Gate 1/64 ON (Doubled from 1/32)
-              baselineGateDivision.current = '1/64';
-              setGateSettings(prev => ({
-                  ...prev,
-                  enabled: true,
-                  division: '1/64'
-              }));
+          case 0: // Top Left: CHOP IT UP (Gate 1/64 ON)
+              handleChop();
               break;
-          case 1: // Top Right: Gate OFF + FX STACK (Trigger 1-3 random FX macros)
-              setGateSettings(prev => ({
-                  ...prev,
-                  enabled: false,
-              }));
-              if (audioEngineRef.current) {
-                  // Randomly pick 1 to 3 effect IDs from 1-9
-                  const count = Math.floor(Math.random() * 3) + 1;
-                  const available = [1,2,3,4,5,6,7,8,9];
-                  const selectedIds = [];
-                  for(let i=0; i<count; i++) {
-                      if (available.length === 0) break;
-                      const idx = Math.floor(Math.random() * available.length);
-                      selectedIds.push(available[idx]);
-                      available.splice(idx, 1);
-                  }
-                  audioEngineRef.current.triggerEffectStacks(selectedIds);
+          case 1: // Top Right: GROWL (ALT Behavior)
+              handleGrowl();
+              break;
+          case 2: // Bottom Left: RUN BACK (ESC Behavior)
+              // IMPORTANT: Capture if drums are currently running before reverting
+              const drumsWereRunning = drumSettings.enabled;
+              
+              handleRevertPreset();
+              
+              // If drums were running, ensure they stay running even if the "previous" state
+              // had them disabled. This prevents visual zones from killing the rhythm.
+              if (drumsWereRunning) {
+                  setDrumSettings(prev => ({ ...prev, enabled: true }));
               }
-              break;
-          case 2: // Bottom Left: Gate 1/32 ON (Match Bottom Right speed)
-              baselineGateDivision.current = '1/32';
-              setGateSettings(prev => ({
-                  ...prev,
-                  enabled: true,
-                  division: '1/32'
-              }));
               break;
           case 3: // Bottom Right: Chaos Mode + Gate 1/32 ON (Doubled from 1/16)
               handleRandomize();
@@ -599,6 +791,11 @@ const App: React.FC = () => {
         onRandomize={handleRandomize}
         crossFader={crossFader}
         onCrossFaderChange={setCrossFader}
+
+        onGrowl={handleGrowl}
+        currentGrowlName={currentGrowlName}
+
+        onChop={handleChop}
       />
       
       <div className="md:hidden fixed bottom-0 w-full bg-yellow-500/10 text-yellow-200 text-[10px] p-1 text-center backdrop-blur-sm z-50 pointer-events-none">

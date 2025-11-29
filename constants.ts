@@ -1,5 +1,4 @@
 
-
 import { SynthPreset, SamplerGenre, DrumStep, GatePatternName, DrumKit, GateDivision } from './types';
 
 export const DEFAULT_PRESET: SynthPreset = {
@@ -13,6 +12,10 @@ export const DEFAULT_PRESET: SynthPreset = {
     filterResonanceBase: 1,
     distortionAmount: 20,
     reverbMix: 0.3,
+    attack: 0.01,
+    decay: 0.1,
+    sustain: 1.0,
+    release: 0.2
   },
   physics: {
     name: "Cornstarch",
@@ -43,6 +46,10 @@ export const LAVA_PRESET: SynthPreset = {
     filterResonanceBase: 5,
     distortionAmount: 50,
     reverbMix: 0.5,
+    attack: 0.05,
+    decay: 0.2,
+    sustain: 0.8,
+    release: 0.5
   },
   physics: {
     name: "Molten Rock",
@@ -73,6 +80,10 @@ export const MERCURY_PRESET: SynthPreset = {
     filterResonanceBase: 0,
     distortionAmount: 5,
     reverbMix: 0.8,
+    attack: 0.005,
+    decay: 0.05,
+    sustain: 0.9,
+    release: 0.1
   },
   physics: {
     name: "Mercury",
@@ -103,6 +114,10 @@ export const GLORPCORE_PRESET: SynthPreset = {
     filterResonanceBase: 18,
     distortionAmount: 15,
     reverbMix: 0.6,
+    attack: 0.1,
+    decay: 0.2,
+    sustain: 0.7,
+    release: 0.4
   },
   physics: {
     name: "Alien Slime",
@@ -133,6 +148,10 @@ export const BZZZZT_PRESET: SynthPreset = {
     filterResonanceBase: 2,
     distortionAmount: 90, 
     reverbMix: 0.1,
+    attack: 0.001,
+    decay: 0.01,
+    sustain: 1.0,
+    release: 0.05
   },
   physics: {
     name: "Electricity",
@@ -163,6 +182,10 @@ export const CRYSTAL_PRESET: SynthPreset = {
     filterResonanceBase: 0.5,
     distortionAmount: 0,
     reverbMix: 0.9, 
+    attack: 0.005,
+    decay: 0.3,
+    sustain: 0.2,
+    release: 0.8
   },
   physics: {
     name: "Liquid Glass",
@@ -193,6 +216,10 @@ export const VOID_PRESET: SynthPreset = {
     filterResonanceBase: 10,
     distortionAmount: 30,
     reverbMix: 0.4,
+    attack: 0.8,
+    decay: 0.5,
+    sustain: 1.0,
+    release: 2.0
   },
   physics: {
     name: "Dark Matter",
@@ -223,6 +250,10 @@ export const ETHEREAL_PRESET: SynthPreset = {
     filterResonanceBase: 0,
     distortionAmount: 2,
     reverbMix: 0.95,
+    attack: 0.2,
+    decay: 0.5,
+    sustain: 0.6,
+    release: 1.0
   },
   physics: {
     name: "Cloud Vapor",
@@ -253,6 +284,10 @@ export const INDUSTRIAL_PRESET: SynthPreset = {
     filterResonanceBase: 8,
     distortionAmount: 85,
     reverbMix: 0.2,
+    attack: 0.01,
+    decay: 0.1,
+    sustain: 1.0,
+    release: 0.1
   },
   physics: {
     name: "Rust Sludge",
@@ -283,6 +318,10 @@ export const NEON_PRESET: SynthPreset = {
     filterResonanceBase: 15,
     distortionAmount: 40,
     reverbMix: 0.3,
+    attack: 0.02,
+    decay: 0.1,
+    sustain: 0.9,
+    release: 0.25
   },
   physics: {
     name: "Plasma",
@@ -319,7 +358,7 @@ export const GENRE_PRESETS: Record<SamplerGenre, { bpm: number, pattern: DrumSte
         bpm: 124,
         pattern: Array(16).fill(empty).map((_, i) => ({
             kick: i % 4 === 0,
-            snare: false,
+            snare: i === 4 || i === 12,
             hihat: i % 4 === 2, // Offbeat hats
             clap: i === 4 || i === 12
         }))
@@ -330,7 +369,7 @@ export const GENRE_PRESETS: Record<SamplerGenre, { bpm: number, pattern: DrumSte
             kick: i % 4 === 0,
             snare: i === 4 || i === 12,
             hihat: i % 2 === 1, // 8th note offbeats
-            clap: false
+            clap: i === 4 || i === 12
         }))
     },
     HIPHOP: {

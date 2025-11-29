@@ -8,6 +8,11 @@ export interface AudioParams {
   filterResonanceBase: number;
   distortionAmount: number;
   reverbMix: number;
+  // ADSR
+  attack: number;  // 0.001 to 2.0
+  decay: number;   // 0.001 to 2.0
+  sustain: number; // 0.0 to 1.0
+  release: number; // 0.001 to 5.0
 }
 
 export interface PhysicsParams {

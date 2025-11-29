@@ -1,3 +1,4 @@
+
 import { AudioParams, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GateDivision } from '../types';
 import { GATE_PATTERNS } from '../constants';
 
@@ -80,10 +81,16 @@ export class AudioEngine {
   };
 
   private stopTimeout: any = null;
+  private isGrowling: boolean = false;
 
   constructor(initialParams: AudioParams) {
     this.params = initialParams;
     this.currentArpFreq = initialParams.baseFreq;
+  }
+
+  // Helper to prevent non-finite errors
+  private safeNum(val: number | undefined, def: number): number {
+      return Number.isFinite(val) ? val as number : def;
   }
 
   public async init() {
@@ -123,7 +130,7 @@ export class AudioEngine {
     this.drumSaturation.curve = this.makeDistortionCurve(30);
 
     this.drumGain = this.ctx.createGain();
-    this.drumGain.gain.value = this.drumSettings.volume;
+    this.drumGain.gain.value = this.safeNum(this.drumSettings.volume, 1.0);
     
     this.drumCompressor.connect(this.drumSaturation);
     this.drumSaturation.connect(this.drumGain);
@@ -143,15 +150,15 @@ export class AudioEngine {
     this.preDistortionGain.gain.value = 1.0;
 
     this.shaper = this.ctx.createWaveShaper();
-    this.shaper.curve = this.makeDistortionCurve(this.params.distortionAmount);
+    this.shaper.curve = this.makeDistortionCurve(this.safeNum(this.params.distortionAmount, 0));
     
     this.crunchShaper = this.ctx.createWaveShaper();
     this.crunchShaper.curve = this.makeIdentityCurve();
 
     this.filter = this.ctx.createBiquadFilter();
     this.filter.type = 'lowpass';
-    this.filter.Q.value = this.params.filterResonanceBase;
-    this.filter.frequency.value = this.params.filterCutoffBase;
+    this.filter.Q.value = this.safeNum(this.params.filterResonanceBase, 1);
+    this.filter.frequency.value = this.safeNum(this.params.filterCutoffBase, 1000);
 
     this.highpass = this.ctx.createBiquadFilter();
     this.highpass.type = 'highpass';
@@ -192,7 +199,7 @@ export class AudioEngine {
     this.convolver = this.ctx.createConvolver();
     this.convolver.buffer = await this.createReverbImpulse(2, 2.0);
     this.dryWet = this.ctx.createGain();
-    this.dryWet.gain.value = this.params.reverbMix;
+    this.dryWet.gain.value = this.safeNum(this.params.reverbMix, 0.3);
 
     this.gateNode.connect(this.convolver);
     this.convolver.connect(this.dryWet);
@@ -235,7 +242,7 @@ export class AudioEngine {
 
   private startOscillators() {
     if (!this.ctx || !this.filter) return;
-    const base = this.params.baseFreq;
+    const base = this.safeNum(this.params.baseFreq, 110);
     this.osc1 = this.ctx.createOscillator();
     this.osc1.type = this.params.osc1Type;
     this.osc1.frequency.value = base;
@@ -265,17 +272,18 @@ export class AudioEngine {
   private scheduleEvents() {
       if (!this.ctx) return;
 
-      // Use 16th notes for grid resolution
-      const secondsPerBeat = 60 / this.arpSettings.bpm;
+      const bpm = this.safeNum(this.arpSettings.bpm, 120);
+      const secondsPerBeat = 60 / (bpm || 120); // avoid div by zero
       const sixteenthTime = secondsPerBeat / 4;
       
       const lookahead = 0.1;
+      const currentTime = this.ctx.currentTime;
 
-      if (this.nextNoteTime < this.ctx.currentTime) {
-          this.nextNoteTime = this.ctx.currentTime + 0.01;
+      if (this.nextNoteTime < currentTime) {
+          this.nextNoteTime = currentTime + 0.01;
       }
 
-      while (this.nextNoteTime < this.ctx.currentTime + lookahead) {
+      while (this.nextNoteTime < currentTime + lookahead) {
           const time = this.nextNoteTime;
           
           // Schedule Drums (16th grid)
@@ -326,10 +334,15 @@ export class AudioEngine {
       
       const apply = (t: number, val: number) => {
           const isOpen = val === 1;
-          const targetGain = isOpen ? 1.0 : Math.max(0, 1.0 - this.gateSettings.mix);
+          const targetGain = isOpen ? 1.0 : Math.max(0, 1.0 - this.safeNum(this.gateSettings.mix, 1.0));
           // Use a very short ramp for click-free but sharp gating
-          this.gateNode!.gain.setTargetAtTime(targetGain, t, 0.003);
+          // GUARD: Check finite time
+          if (Number.isFinite(t)) {
+            this.gateNode!.gain.setTargetAtTime(targetGain, t, 0.003);
+          }
       };
+
+      if (!Number.isFinite(sixteenthTime) || sixteenthTime <= 0) return;
 
       switch(this.gateSettings.division) {
           case '1/64':
@@ -440,14 +453,16 @@ export class AudioEngine {
         osc.type = 'sine';
     }
 
-    osc.frequency.setValueAtTime(freqStart, time);
-    osc.frequency.exponentialRampToValueAtTime(freqEnd, time + decay);
-    
-    gain.gain.setValueAtTime(1.0, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+    if (Number.isFinite(time)) {
+        osc.frequency.setValueAtTime(freqStart, time);
+        osc.frequency.exponentialRampToValueAtTime(freqEnd, time + decay);
+        
+        gain.gain.setValueAtTime(1.0, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
 
-    osc.start(time);
-    osc.stop(time + decay);
+        osc.start(time);
+        osc.stop(time + decay);
+    }
   }
 
   private triggerSnare(time: number) {
@@ -468,11 +483,13 @@ export class AudioEngine {
     else if (kit === 'INDUSTRIAL') toneFreq = 150;
     else if (kit === 'LOFI') toneFreq = 220;
 
-    osc.frequency.setValueAtTime(toneFreq, time);
-    oscGain.gain.setValueAtTime(0.5, time);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, time + toneDecay);
-    osc.start(time);
-    osc.stop(time + toneDecay);
+    if (Number.isFinite(time)) {
+        osc.frequency.setValueAtTime(toneFreq, time);
+        oscGain.gain.setValueAtTime(0.5, time);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, time + toneDecay);
+        osc.start(time);
+        osc.stop(time + toneDecay);
+    }
 
     // Noise
     const noiseDuration = (kit === '808') ? 0.3 : 0.2;
@@ -493,10 +510,12 @@ export class AudioEngine {
     noiseFilter.connect(noiseGain);
     noiseGain.connect(this.drumCompressor);
     
-    noiseGain.gain.setValueAtTime(0.7, time);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, time + noiseDuration);
-    
-    noise.start(time);
+    if (Number.isFinite(time)) {
+        noiseGain.gain.setValueAtTime(0.7, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + noiseDuration);
+        
+        noise.start(time);
+    }
   }
 
   private triggerHiHat(time: number) {
@@ -528,10 +547,11 @@ export class AudioEngine {
     gain.connect(this.drumCompressor);
 
     const vol = 0.4;
-    gain.gain.setValueAtTime(vol, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-    
-    noise.start(time);
+    if (Number.isFinite(time)) {
+        gain.gain.setValueAtTime(vol, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+        noise.start(time);
+    }
   }
 
   private triggerClap(time: number) {
@@ -557,19 +577,20 @@ export class AudioEngine {
 
     // Clap envelope (multiple strikes)
     const t = time;
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(0.5, t + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
-    gain.gain.setValueAtTime(0.5, t + 0.03);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-    gain.gain.setValueAtTime(0.5, t + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + decay);
-
-    noise.start(t);
+    if (Number.isFinite(t)) {
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.5, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
+        gain.gain.setValueAtTime(0.5, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+        gain.gain.setValueAtTime(0.5, t + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + decay);
+        noise.start(t);
+    }
   }
 
   private playArpNoteAt(time: number, duration: number) {
-      const baseFreq = this.params.baseFreq; 
+      const baseFreq = this.safeNum(this.params.baseFreq, 110);
       
       let baseIndex = this.scaleFrequencies.findIndex(f => f >= baseFreq);
       if (baseIndex === -1) baseIndex = 0;
@@ -577,11 +598,6 @@ export class AudioEngine {
       // Ensure base index is valid within the scale provided
       if (baseIndex >= this.scaleFrequencies.length) baseIndex = 0;
 
-      // The pool of notes is strictly determined by 'steps' and 'octaveRange'.
-      // However, usually 'steps' in an ARP means the length of the pattern.
-      // If the user selects Steps=1, we should only ever play the root.
-      // If Steps=3, we cycle 0,1,2 relative to start.
-      
       const patternLength = this.arpSettings.steps;
       let stepOffset = 0;
 
@@ -618,11 +634,6 @@ export class AudioEngine {
               break;
       }
       
-      // Map stepOffset to Scale Index + Octave Shift
-      // We want to span 'octaveRange' over the 'steps' if possible, or just walk up the scale?
-      // Simple implementation: Walk up the scale array 'stepOffset' times.
-      // If stepOffset exceeds scale length, wrap and add octave.
-      
       const rawTargetIndex = baseIndex + stepOffset;
       const scaleLen = this.scaleFrequencies.length;
       
@@ -631,16 +642,11 @@ export class AudioEngine {
       if (scaleLen > 0) {
           const wrappedIndex = rawTargetIndex % scaleLen;
           const octaveShift = Math.floor(rawTargetIndex / scaleLen);
-          
-          // Apply octave range limit? 
-          // If the user sets Steps=16 but OctaveRange=1, should it go up forever? 
-          // Let's constrain the octave shift by octaveRange.
           const constrainedOctave = octaveShift % (this.arpSettings.octaveRange + 1);
-          
           finalFreq = this.scaleFrequencies[wrappedIndex] * Math.pow(2, constrainedOctave);
       }
 
-      this.currentArpFreq = finalFreq;
+      this.currentArpFreq = Number.isFinite(finalFreq) ? finalFreq : baseFreq;
       this.lastTriggerTime = time; // Trigger Envelope
   }
 
@@ -648,6 +654,192 @@ export class AudioEngine {
   public triggerEffectStacks(ids: number[]) {
       if (!this.ctx) return;
       ids.forEach(id => this.triggerSpecialEffect(id));
+  }
+
+  // --- GROWL TRIGGER ---
+  public triggerGrowl(id: number) {
+      if (!this.ctx || !this.osc1 || !this.osc2 || !this.filter || !this.gainNode) return;
+      
+      this.isGrowling = true; // Block modulate() from interfering
+      const now = this.ctx.currentTime;
+      const baseFreq = this.safeNum(this.params.baseFreq, 110);
+      
+      // Momentarily override engine for a "Shot"
+      this.gainNode.gain.cancelScheduledValues(now);
+      this.gainNode.gain.setValueAtTime(this.safeNum(this.synthVolume, 0.15), now);
+      
+      // Note: Removed the setTimeout reset. App.tsx will call cancelGrowl() on kick/snare.
+
+      // Helper to set oscs quickly
+      const setOsc = (osc: OscillatorNode, type: OscillatorType, freqMult: number = 1, detune: number = 0) => {
+          osc.type = type;
+          osc.frequency.cancelScheduledValues(now);
+          const freq = baseFreq * freqMult;
+          if (Number.isFinite(freq)) osc.frequency.setValueAtTime(freq, now);
+          
+          osc.detune.cancelScheduledValues(now);
+          if (Number.isFinite(detune)) osc.detune.setValueAtTime(detune, now);
+      };
+
+      const setFilter = (type: BiquadFilterType, freq: number, Q: number) => {
+          if (!this.filter) return;
+          this.filter.type = type;
+          this.filter.frequency.cancelScheduledValues(now);
+          if(Number.isFinite(freq)) this.filter.frequency.setValueAtTime(freq, now);
+          this.filter.Q.cancelScheduledValues(now);
+          if(Number.isFinite(Q)) this.filter.Q.setValueAtTime(Q, now);
+      };
+
+      switch(id) {
+          case 1: // Basic Growl (Vowel RAAH)
+              setOsc(this.osc1, 'sawtooth', 0.5); // Sub saw
+              setOsc(this.osc2, 'sawtooth', 0.51, 15); // Detuned
+              setFilter('bandpass', 400, 5);
+              // Wow filter
+              this.filter.frequency.exponentialRampToValueAtTime(1200, now + 0.3);
+              this.filter.frequency.exponentialRampToValueAtTime(300, now + 0.6);
+              if (this.preDistortionGain) this.preDistortionGain.gain.setValueAtTime(40, now);
+              break;
+
+          case 2: // Robotic FM Growl
+              setOsc(this.osc1, 'sine', 0.5);
+              setOsc(this.osc2, 'square', 1.0); // Modulator
+              // Fake FM by rapid pitch mod
+              if (Number.isFinite(baseFreq)) {
+                this.osc1.frequency.setValueAtTime(baseFreq * 0.5, now);
+                this.osc1.frequency.linearRampToValueAtTime(baseFreq * 0.5 + 200, now + 0.05);
+              }
+              setFilter('notch', 800, 10);
+              this.filter.frequency.linearRampToValueAtTime(400, now + 0.4);
+              if (this.preDistortionGain) this.preDistortionGain.gain.setValueAtTime(80, now);
+              break;
+
+          case 3: // Yoi / Talking Bass
+              setOsc(this.osc1, 'sawtooth', 0.5);
+              setOsc(this.osc2, 'square', 0.5, 10);
+              setFilter('bandpass', 300, 15); // High Res BP
+              // YOI movement
+              this.filter.frequency.setValueAtTime(300, now);
+              this.filter.frequency.exponentialRampToValueAtTime(1500, now + 0.15); // Y
+              this.filter.frequency.exponentialRampToValueAtTime(300, now + 0.4); // OI
+              break;
+
+          case 4: // Screech Hybrid
+              setOsc(this.osc1, 'sawtooth', 1.0); // High pitch
+              setOsc(this.osc2, 'sawtooth', 1.0, 50); // Very detuned
+              setFilter('highpass', 500, 12);
+              this.filter.frequency.exponentialRampToValueAtTime(2000, now + 0.1);
+              if (this.preDistortionGain) this.preDistortionGain.gain.setValueAtTime(100, now); // Scream
+              break;
+
+          case 5: // Reese Growl
+              setOsc(this.osc1, 'sawtooth', 0.25); // Low
+              setOsc(this.osc2, 'sawtooth', 0.25, 25); // Detuned
+              setFilter('lowpass', 800, 2);
+              // Phaser active
+              if (this.phaserWetGain) this.phaserWetGain.gain.setValueAtTime(1, now);
+              if (this.preDistortionGain) this.preDistortionGain.gain.setValueAtTime(30, now);
+              break;
+
+          case 6: // Laser Bass
+              setOsc(this.osc1, 'sine', 1.0);
+              setOsc(this.osc2, 'triangle', 1.0);
+              // Pew Pew pitch
+              this.osc1.frequency.setValueAtTime(1500, now);
+              this.osc1.frequency.exponentialRampToValueAtTime(60, now + 0.15);
+              this.osc2.frequency.setValueAtTime(1500, now);
+              this.osc2.frequency.exponentialRampToValueAtTime(60, now + 0.15);
+              setFilter('highpass', 100, 5);
+              break;
+
+          case 7: // Donk Hybrid
+              setOsc(this.osc1, 'square', 0.5);
+              setOsc(this.osc2, 'sine', 0.5);
+              // Fast pitch envelope
+              this.osc1.frequency.setValueAtTime(400, now);
+              this.osc1.frequency.exponentialRampToValueAtTime(60, now + 0.05);
+              setFilter('lowpass', 3000, 1);
+              if (this.preDistortionGain) this.preDistortionGain.gain.setValueAtTime(60, now); // Hard clip
+              break;
+
+          case 8: // Beast Roar
+              setOsc(this.osc1, 'sawtooth', 0.25);
+              setOsc(this.osc2, 'square', 0.25, -15);
+              setFilter('bandpass', 200, 8);
+              this.filter.frequency.setValueAtTime(200, now);
+              this.filter.frequency.linearRampToValueAtTime(800, now + 0.2);
+              this.filter.frequency.linearRampToValueAtTime(150, now + 0.8);
+              if (this.dryWet) this.dryWet.gain.setValueAtTime(0.4, now); // Reverb
+              break;
+
+          case 9: // Metallic Grinder
+              setOsc(this.osc1, 'sawtooth', 0.5);
+              setOsc(this.osc2, 'sawtooth', 0.75); // Fifth
+              setFilter('notch', 500, 20);
+              // Notch sweep
+              this.filter.frequency.linearRampToValueAtTime(2000, now + 0.5);
+              if (this.preDistortionGain) this.preDistortionGain.gain.setValueAtTime(50, now);
+              break;
+
+          case 10: // Machine Gun Bass
+              setOsc(this.osc1, 'square', 0.25);
+              setOsc(this.osc2, 'sawtooth', 0.25);
+              setFilter('lowpass', 1200, 1);
+              // AM Modulation on volume for stutter
+              this.gainNode.gain.setValueAtTime(this.safeNum(this.synthVolume, 0.15), now);
+              this.gainNode.gain.setValueAtTime(0, now + 0.05);
+              this.gainNode.gain.setValueAtTime(this.safeNum(this.synthVolume, 0.15), now + 0.10);
+              this.gainNode.gain.setValueAtTime(0, now + 0.15);
+              this.gainNode.gain.setValueAtTime(this.safeNum(this.synthVolume, 0.15), now + 0.20);
+              this.gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+              break;
+      }
+      
+      this.lastTriggerTime = now;
+  }
+
+  // --- CANCEL GROWL (Manual Cut) ---
+  public cancelGrowl() {
+      if (!this.ctx) return;
+      
+      this.isGrowling = false; // Allow modulate() to resume control
+      const now = this.ctx.currentTime;
+      
+      // Cancel Volume Automation
+      if (this.gainNode) {
+          this.gainNode.gain.cancelScheduledValues(now);
+          // Ramp quickly to normal volume to avoid clicks
+          this.gainNode.gain.setTargetAtTime(this.safeNum(this.synthVolume, 0.15), now, 0.05);
+      }
+      
+      // Reset Oscillators
+      [this.osc1, this.osc2, this.osc3].forEach(osc => {
+          if (osc) {
+              osc.frequency.cancelScheduledValues(now);
+              osc.detune.cancelScheduledValues(now);
+          }
+      });
+      
+      // Reset Filter
+      if (this.filter) {
+          this.filter.frequency.cancelScheduledValues(now);
+          this.filter.Q.cancelScheduledValues(now);
+          this.filter.type = 'lowpass';
+          // Restore base params smoothly
+          if (Number.isFinite(this.params.filterCutoffBase))
+            this.filter.frequency.setTargetAtTime(this.params.filterCutoffBase, now, 0.05);
+          if (Number.isFinite(this.params.filterResonanceBase))
+            this.filter.Q.setTargetAtTime(this.params.filterResonanceBase, now, 0.05);
+      }
+      
+      // Reset PreDistortion
+      if (this.preDistortionGain) {
+          this.preDistortionGain.gain.cancelScheduledValues(now);
+          this.preDistortionGain.gain.setTargetAtTime(this.currentFx.distortion ? 50.0 : 1.0, now, 0.05);
+      }
+      
+      // Re-apply params to ensure consistency
+      this.setParams(this.params);
   }
 
   private triggerSpecialEffect(id: number) {
@@ -677,10 +869,10 @@ export class AudioEngine {
                 this.filter.Q.setValueAtTime(5, now);
                 // Reset
                 setTimeout(() => {
-                   if(this.filter) {
+                   if(this.filter && this.ctx && Number.isFinite(this.params.filterCutoffBase)) {
                        this.filter.type = 'lowpass';
-                       this.filter.frequency.setTargetAtTime(this.params.filterCutoffBase, this.ctx!.currentTime, 0.1);
-                       this.filter.Q.setTargetAtTime(this.params.filterResonanceBase, this.ctx!.currentTime, 0.1);
+                       this.filter.frequency.setTargetAtTime(this.params.filterCutoffBase, this.ctx.currentTime, 0.1);
+                       this.filter.Q.setTargetAtTime(this.safeNum(this.params.filterResonanceBase, 1), this.ctx.currentTime, 0.1);
                    }
                 }, 500);
             }
@@ -725,15 +917,20 @@ export class AudioEngine {
 
           case 5: // Pitch-bend Slam
              if (this.osc1 && this.osc2) {
-                 const base1 = this.osc1.frequency.value;
-                 const base2 = this.osc2.frequency.value;
-                 this.osc1.frequency.setValueAtTime(base1, now);
-                 this.osc1.frequency.exponentialRampToValueAtTime(base1 * 0.25, now + 0.1); // -2 octaves
-                 this.osc1.frequency.setTargetAtTime(base1, now + 0.15, 0.1);
+                 const base1 = this.safeNum(this.osc1.frequency.value, 110);
+                 const base2 = this.safeNum(this.osc2.frequency.value, 110);
                  
-                 this.osc2.frequency.setValueAtTime(base2, now);
-                 this.osc2.frequency.exponentialRampToValueAtTime(base2 * 0.25, now + 0.1);
-                 this.osc2.frequency.setTargetAtTime(base2, now + 0.15, 0.1);
+                 if(Number.isFinite(base1)) {
+                    this.osc1.frequency.setValueAtTime(base1, now);
+                    this.osc1.frequency.exponentialRampToValueAtTime(Math.max(10, base1 * 0.25), now + 0.1); // -2 octaves
+                    this.osc1.frequency.setTargetAtTime(base1, now + 0.15, 0.1);
+                 }
+                 
+                 if(Number.isFinite(base2)) {
+                    this.osc2.frequency.setValueAtTime(base2, now);
+                    this.osc2.frequency.exponentialRampToValueAtTime(Math.max(10, base2 * 0.25), now + 0.1);
+                    this.osc2.frequency.setTargetAtTime(base2, now + 0.15, 0.1);
+                 }
              }
              break;
 
@@ -748,10 +945,10 @@ export class AudioEngine {
                  this.preDistortionGain.gain.linearRampToValueAtTime(40, now + 0.3);
                  
                  setTimeout(() => {
-                     if (this.filter) {
+                     if (this.filter && this.ctx && Number.isFinite(this.params.filterCutoffBase)) {
                          this.filter.type = 'lowpass';
-                         this.filter.frequency.setTargetAtTime(this.params.filterCutoffBase, this.ctx!.currentTime, 0.1);
-                         this.filter.Q.value = this.params.filterResonanceBase;
+                         this.filter.frequency.setTargetAtTime(this.params.filterCutoffBase, this.ctx.currentTime, 0.1);
+                         this.filter.Q.value = this.safeNum(this.params.filterResonanceBase, 1);
                      }
                  }, 400);
              }
@@ -760,25 +957,27 @@ export class AudioEngine {
           case 7: // Sub-drop Enhancer
              if (this.osc3) {
                  // transient boost on sub
-                 const base = this.osc3.frequency.value;
-                 this.osc3.frequency.setValueAtTime(60, now);
-                 this.osc3.frequency.exponentialRampToValueAtTime(30, now + 0.4);
-                 // return
-                 this.osc3.frequency.setTargetAtTime(base, now + 0.5, 0.2);
+                 const base = this.safeNum(this.osc3.frequency.value, 55);
+                 if(Number.isFinite(base)) {
+                    this.osc3.frequency.setValueAtTime(60, now);
+                    this.osc3.frequency.exponentialRampToValueAtTime(30, now + 0.4);
+                    // return
+                    this.osc3.frequency.setTargetAtTime(base, now + 0.5, 0.2);
+                 }
              }
              break;
 
           case 8: // FM Mod Shriek
              // Simulate via rapid filter modulation since we don't have true FM setup exposed here easily
-             if (this.filter) {
+             if (this.filter && Number.isFinite(this.params.filterCutoffBase)) {
                  this.filter.Q.setValueAtTime(20, now);
                  this.filter.frequency.setValueAtTime(this.params.filterCutoffBase, now);
                  this.filter.frequency.linearRampToValueAtTime(this.params.filterCutoffBase + 2000, now + 0.05);
-                 this.filter.frequency.linearRampToValueAtTime(this.params.filterCutoffBase - 500, now + 0.1);
+                 this.filter.frequency.linearRampToValueAtTime(Math.max(10, this.params.filterCutoffBase - 500), now + 0.1);
                  this.filter.frequency.linearRampToValueAtTime(this.params.filterCutoffBase, now + 0.3);
                  
                  setTimeout(() => {
-                     if (this.filter) this.filter.Q.value = this.params.filterResonanceBase;
+                     if (this.filter) this.filter.Q.value = this.safeNum(this.params.filterResonanceBase, 1);
                  }, 300);
              }
              break;
@@ -808,7 +1007,7 @@ export class AudioEngine {
     if (!this.ctx) return;
     if (this.osc1) this.osc1.type = this.params.osc1Type;
     if (this.osc2) this.osc2.type = this.params.osc2Type;
-    if (this.shaper) this.shaper.curve = this.makeDistortionCurve(this.params.distortionAmount);
+    if (this.shaper) this.shaper.curve = this.makeDistortionCurve(this.safeNum(this.params.distortionAmount, 0));
     this.updateFxState();
   }
 
@@ -830,15 +1029,42 @@ export class AudioEngine {
           this.currentStep = 0;
       }
       this.drumSettings = settings;
-      if (this.drumGain) {
-          this.drumGain.gain.setTargetAtTime(settings.volume, this.ctx!.currentTime, 0.1);
+      // Safety check for drumGain and ctx before accessing currentTime
+      if (this.drumGain && this.ctx) {
+          const vol = this.safeNum(settings.volume, 1.0);
+          this.drumGain.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.1);
       }
   }
   
   public setGateSettings(settings: GateSettings) {
+      const wasEnabled = this.gateSettings.enabled;
       this.gateSettings = settings;
-      if (!settings.enabled && this.gateNode && this.ctx) {
-           this.gateNode.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.1);
+      
+      if (!this.ctx || !this.gateNode) return;
+      const now = this.ctx.currentTime;
+
+      if (!settings.enabled) {
+           // Gate disabled: Open it up
+           this.gateNode.gain.cancelScheduledValues(now);
+           this.gateNode.gain.setTargetAtTime(1.0, now, 0.1);
+      } else if (settings.enabled && !wasEnabled) {
+           // Gate turning ON: Punch it in NOW
+           this.gateNode.gain.cancelScheduledValues(now);
+           
+           // Calculate 16th note duration for the current tempo
+           const bpm = this.safeNum(this.arpSettings.bpm, 120);
+           const secondsPerBeat = 60 / bpm;
+           const sixteenthTime = secondsPerBeat / 4;
+           
+           // IMPORTANT: Use currentStep - 1 (or wrap around) because the scheduler loop
+           // has already advanced 'currentStep' for the NEXT lookahead event.
+           // If we use currentStep directly, we might play the 'off' beat of a trance pattern
+           // right when the drop kicks in.
+           const patternLength = this.drumSettings.pattern.length || 16;
+           const playbackStep = (this.currentStep - 1 + patternLength) % patternLength;
+           
+           // Force schedule current step immediately
+           this.scheduleGate(now, playbackStep, sixteenthTime);
       }
   }
 
@@ -862,7 +1088,8 @@ export class AudioEngine {
     // Explicit 0.5 cap for delay wetness
     if (this.delayDryWet) this.delayDryWet.gain.setTargetAtTime(this.currentFx.delay ? 0.5 : 0, now, 0.1);
     
-    if (this.dryWet) this.dryWet.gain.setTargetAtTime(this.currentFx.reverb ? 0.6 : this.params.reverbMix, now, 0.1);
+    const reverbVal = this.safeNum(this.params.reverbMix, 0.3);
+    if (this.dryWet) this.dryWet.gain.setTargetAtTime(this.currentFx.reverb ? 0.6 : reverbVal, now, 0.1);
     if (this.preDistortionGain) this.preDistortionGain.gain.setTargetAtTime(this.currentFx.distortion ? 50.0 : 1.0, now, 0.1);
     
     // Updated Logic: "Crunch" is now "Saturate". Use makeDistortionCurve(15) for warm saturation instead of bitcrushing.
@@ -882,7 +1109,7 @@ export class AudioEngine {
              this.nextNoteTime = this.ctx.currentTime;
           } else {
              this.lastTriggerTime = this.ctx.currentTime;
-             this.currentArpFreq = this.params.baseFreq; 
+             this.currentArpFreq = this.safeNum(this.params.baseFreq, 110); 
           }
           if (this.ctx.state === 'suspended') this.ctx.resume();
       }
@@ -909,15 +1136,14 @@ export class AudioEngine {
 
   public modulate(x: number, y: number, speed: number, hardness: number, isClicked: boolean) {
     if (!this.ctx || !this.osc1 || !this.osc2 || !this.osc3 || !this.filter || !this.gainNode) return;
+    if (this.isGrowling) return; // Prevent modulation during growl
+
     const now = this.ctx.currentTime;
     let isActive = false;
     if (this.arpSettings.enabled) {
-        // With Arp enabled, we rely on the triggerEnvelope set in playArpNoteAt
-        // But we need to keep the gate 'active' for the duration of the note?
-        // Actually, playArpNoteAt updates lastTriggerTime.
-        // We need to calculate gate length based on arp division.
         const notesPer16th = this.getNotesPer16th(this.arpSettings.division);
-        const secondsPerBeat = 60 / this.arpSettings.bpm;
+        const bpm = this.safeNum(this.arpSettings.bpm, 120);
+        const secondsPerBeat = 60 / bpm;
         const sixteenthTime = secondsPerBeat / 4;
         
         let stepDuration = sixteenthTime;
@@ -931,11 +1157,18 @@ export class AudioEngine {
         const isTriggerActive = timeSinceTrigger < 0.5; 
         isActive = speed > 0.1 || isTriggerActive || isClicked;
     }
-    const targetGain = isActive ? this.synthVolume : 0;
+    const targetGain = isActive ? (this.safeNum(this.synthVolume, 0.15) * (this.arpSettings.enabled ? 1.0 : this.safeNum(this.params.sustain, 0.8))) : 0;
     
-    // RESPONSE TWEAK: Faster attack (0.005), Faster release (0.1) for tight responsiveness
-    const volumeLag = this.arpSettings.enabled ? 0.005 : (isActive ? 0.005 : 0.1); 
-    this.gainNode.gain.setTargetAtTime(targetGain, now, volumeLag);
+    // ADSR Envelope Logic replacement for hardcoded lag
+    const attack = this.safeNum(this.params.attack, 0.01);
+    const release = this.safeNum(this.params.release, 0.1);
+    
+    // Use user-defined ADSR instead of hardcoded values
+    // Clamp to prevent non-finite errors
+    const volumeLag = Math.max(0.001, isActive ? attack : release); 
+
+    if(Number.isFinite(targetGain))
+        this.gainNode.gain.setTargetAtTime(targetGain, now, volumeLag);
 
     if (this.preDistortionGain) {
         const baseDrive = this.currentFx.distortion ? 50.0 : 1.0;
@@ -943,27 +1176,37 @@ export class AudioEngine {
         this.preDistortionGain.gain.setTargetAtTime(baseDrive + clickBoost, now, 0.02);
     }
 
-    const pitchBend = (x * 2 - 1) * 200; 
-    let base = this.arpSettings.enabled ? this.currentArpFreq : this.params.baseFreq;
+    const pitchBend = (Number.isFinite(x) ? (x * 2 - 1) : 0) * 200; 
+    let base = this.arpSettings.enabled ? this.currentArpFreq : this.safeNum(this.params.baseFreq, 110);
     base = base * Math.pow(2, this.octaveOffset);
     
     // RESPONSE TWEAK: Faster pitch tracking
-    const lag = 0.04 * (1 - hardness); 
+    // Clamp lag to be strictly positive to avoid "non-finite" or "not supported" error
+    const lag = Math.max(0.001, 0.04 * (1 - hardness)); 
     
-    this.osc1.frequency.setTargetAtTime(base, now, lag);
-    this.osc1.detune.setTargetAtTime(pitchBend, now, lag);
-    const harmonicDetune = this.params.detuneSpread + (y * 50);
-    this.osc2.frequency.setTargetAtTime(base, now, lag);
-    this.osc2.detune.setTargetAtTime(pitchBend + harmonicDetune, now, lag);
-    this.osc3.frequency.setTargetAtTime(base / 2, now, lag);
+    if (Number.isFinite(base))
+        this.osc1.frequency.setTargetAtTime(base, now, lag);
+    if (Number.isFinite(pitchBend))
+        this.osc1.detune.setTargetAtTime(pitchBend, now, lag);
+        
+    const harmonicDetune = this.safeNum(this.params.detuneSpread, 15) + (Number.isFinite(y) ? y * 50 : 0);
+    if (Number.isFinite(base)) {
+        this.osc2.frequency.setTargetAtTime(base, now, lag);
+        this.osc3.frequency.setTargetAtTime(base / 2, now, lag);
+    }
+    if (Number.isFinite(pitchBend + harmonicDetune))
+        this.osc2.detune.setTargetAtTime(pitchBend + harmonicDetune, now, lag);
 
-    let targetCutoff = this.params.filterCutoffBase + (hardness * 5000);
+    let targetCutoff = this.safeNum(this.params.filterCutoffBase, 1000) + (hardness * 5000);
     if (isClicked) targetCutoff += 1000; 
     
     // RESPONSE TWEAK: Faster filter tracking
-    this.filter.frequency.setTargetAtTime(targetCutoff, now, 0.02);
-    const targetRes = this.params.filterResonanceBase + (hardness * 10);
-    this.filter.Q.setTargetAtTime(targetRes, now, 0.02);
+    if (Number.isFinite(targetCutoff))
+        this.filter.frequency.setTargetAtTime(targetCutoff, now, 0.02);
+        
+    const targetRes = this.safeNum(this.params.filterResonanceBase, 1) + (hardness * 10);
+    if (Number.isFinite(targetRes))
+        this.filter.Q.setTargetAtTime(targetRes, now, 0.02);
   }
 
   public stop() {
@@ -981,7 +1224,7 @@ export class AudioEngine {
   }
 
   private makeDistortionCurve(amount: number) {
-    const k = typeof amount === 'number' ? amount : 50;
+    const k = typeof amount === 'number' && Number.isFinite(amount) ? amount : 50;
     const n_samples = 44100;
     const curve = new Float32Array(n_samples);
     const deg = Math.PI / 180;

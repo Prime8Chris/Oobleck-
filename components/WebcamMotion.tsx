@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useState } from 'react';
 import { Camera, Activity, Zap, Grid2X2 } from 'lucide-react';
 
@@ -329,13 +330,13 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
                 {/* Grid Overlay */}
                 <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none">
                     <div className={`border-r border-b border-white/10 flex items-start justify-start p-1 transition-colors duration-200 ${uiActiveZones[0] ? 'bg-teal-500/20' : ''}`}>
-                         <span className={`text-[8px] font-bold font-mono transition-colors ${uiActiveZones[0] ? 'text-teal-300' : 'text-gray-500'}`}>GATE 1/64</span>
+                         <span className={`text-[8px] font-bold font-mono transition-colors ${uiActiveZones[0] ? 'text-teal-300' : 'text-gray-500'}`}>CHOP IT UP</span>
                     </div>
                     <div className={`border-b border-white/10 flex items-start justify-end p-1 transition-colors duration-200 ${uiActiveZones[1] ? 'bg-red-500/20' : ''}`}>
-                        <span className={`text-[8px] font-bold font-mono transition-colors ${uiActiveZones[1] ? 'text-red-300' : 'text-gray-500'}`}>GATE OFF + FX STACK</span>
+                        <span className={`text-[8px] font-bold font-mono transition-colors ${uiActiveZones[1] ? 'text-red-300' : 'text-gray-500'}`}>GRRRR!</span>
                     </div>
                     <div className={`border-r border-white/10 flex items-end justify-start p-1 transition-colors duration-200 ${uiActiveZones[2] ? 'bg-blue-500/20' : ''}`}>
-                         <span className={`text-[8px] font-bold font-mono transition-colors ${uiActiveZones[2] ? 'text-blue-300' : 'text-gray-500'}`}>GATE 1/4</span>
+                         <span className={`text-[8px] font-bold font-mono transition-colors ${uiActiveZones[2] ? 'text-blue-300' : 'text-gray-500'}`}>RUN BACK</span>
                     </div>
                     <div className={`flex items-end justify-end p-1 transition-colors duration-200 ${uiActiveZones[3] ? 'bg-purple-500/20' : ''}`}>
                          <span className={`text-[8px] font-bold font-mono transition-colors ${uiActiveZones[3] ? 'text-purple-300' : 'text-gray-500'}`}>CHAOS</span>
