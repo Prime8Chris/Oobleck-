@@ -1,6 +1,6 @@
 {
   "name": "Oobleck: Non-Newtonian Synth",
-  "description": "A generative audio synthesizer that mimics non-Newtonian fluid physics. Move slowly for liquid textures, strike fast for solid, abrasive sounds. Powered by Gemini.",
+  "description": "A generative audio synthesizer that mimics non-Newtonian fluid physics. Move slowly for liquid textures, strike fast for solid, abrasive sounds.",
   "requestFramePermissions": [
     "microphone",
     "camera"
