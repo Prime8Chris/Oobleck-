@@ -560,6 +560,14 @@ const UIOverlay: React.FC<Props> = ({
             0%, 100% { transform: rotate(-3deg); }
             50% { transform: rotate(3deg); }
         }
+        @keyframes snip {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(-25deg); }
+        }
+        @keyframes reverse-spin {
+            from { transform: rotate(360deg); }
+            to { transform: rotate(0deg); }
+        }
       `}</style>
 
       {/* Growl Notification - Highest Priority Alert (z-[60]) */}
@@ -663,7 +671,7 @@ const UIOverlay: React.FC<Props> = ({
                             shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110
                         `}
                      >
-                        <Scissors className="w-8 h-8" strokeWidth={3} />
+                        <Scissors className="w-8 h-8 animate-[snip_0.4s_ease-in-out_infinite]" strokeWidth={3} />
                         <div className="flex flex-col items-start leading-none">
                             <span className="drop-shadow-md">CHOP IT UP</span>
                             <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(CLICK)</span>
@@ -696,7 +704,7 @@ const UIOverlay: React.FC<Props> = ({
                                 : 'shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110'}
                         `}
                      >
-                        <RotateCcw className="w-8 h-8" strokeWidth={3} />
+                        <RotateCcw className="w-8 h-8 animate-[reverse-spin_1.5s_linear_infinite]" strokeWidth={3} />
                         <div className="flex flex-col items-start leading-none">
                             <span className="drop-shadow-md">Run it Back</span>
                             <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(ESC)</span>
@@ -991,7 +999,7 @@ const UIOverlay: React.FC<Props> = ({
                                 type="range" min="0" max="1" step="0.01"
                                 value={crossFader}
                                 onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))}
-                                className="flex-1 min-w-0 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize"
+                                className="flex-1 min-w-0 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize min-w-0"
                              />
                              <span className="text-[7px] font-bold text-teal-500">SYN</span>
                          </div>
