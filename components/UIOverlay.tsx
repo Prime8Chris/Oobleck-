@@ -57,6 +57,7 @@ interface Props {
   onLoadPatch: (p: UserPatch) => void; // Updated
   onBigSave: () => void;
   saveButtonText: string;
+  nextSaveSlotIndex: number;
 }
 
 const FxButton = ({ label, active, onClick, icon: Icon, color }: { label: string, active: boolean, onClick: () => void, icon: any, color: string }) => {
@@ -121,6 +122,50 @@ const VolumeSlider = ({ value, onChange, vertical = false }: { value: number, on
         style={vertical ? { bottom: `${value * 100}%` } : { left: `${value * 100}%` }}
     />
   </div>
+);
+
+// Neon Thumbs Up SVG for Big Save Button
+const NeonThumbsUp = ({ className }: { className?: string }) => (
+    <svg viewBox="0 0 200 200" className={className} overflow="visible">
+        <defs>
+            <linearGradient id="neonThumbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#06b6d4" /> {/* Cyan */}
+                <stop offset="50%" stopColor="#d946ef" /> {/* Magenta */}
+                <stop offset="100%" stopColor="#eab308" /> {/* Yellow */}
+            </linearGradient>
+            <filter id="neonThumbGlow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+        </defs>
+        
+        {/* Hand/Thumb Path */}
+        <path 
+            d="M50,100 L50,150 Q50,170 70,170 L130,170 Q150,170 150,150 L150,120 Q150,100 130,100 L110,100 L120,70 Q125,50 110,40 Q95,30 90,50 L80,100 L70,100 Q50,100 50,100 Z
+               M50,100 Q40,100 40,110 L40,160 Q40,170 50,170"
+            fill="none" 
+            stroke="url(#neonThumbGrad)" 
+            strokeWidth="8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter="url(#neonThumbGlow)" 
+        />
+        
+        {/* Fill with low opacity */}
+        <path 
+            d="M50,100 L50,150 Q50,170 70,170 L130,170 Q150,170 150,150 L150,120 Q150,100 130,100 L110,100 L120,70 Q125,50 110,40 Q95,30 90,50 L80,100 L70,100 Q50,100 50,100 Z"
+            fill="url(#neonThumbGrad)" 
+            opacity="0.2"
+        />
+        
+        {/* Motion Lines */}
+        <path d="M160,50 L170,40" stroke="#eab308" strokeWidth="4" strokeLinecap="round" filter="url(#neonThumbGlow)" />
+        <path d="M170,70 L185,65" stroke="#d946ef" strokeWidth="4" strokeLinecap="round" filter="url(#neonThumbGlow)" />
+        <path d="M30,130 L20,135" stroke="#06b6d4" strokeWidth="4" strokeLinecap="round" filter="url(#neonThumbGlow)" />
+    </svg>
 );
 
 // Vibrant OOBLECK Logo SVG (Enhanced Cell-Shaded Version)
@@ -211,6 +256,39 @@ const OobleckLogo = ({ onClick }: { onClick: () => void }) => (
   </div>
 );
 
+// Internal component for the flying animation
+const FlyingThumbImpl = ({sx, sy, tx, ty, onComplete}: {sx: number, sy: number, tx: number, ty: number, onComplete: () => void}) => {
+    const [style, setStyle] = useState<React.CSSProperties>({
+        transform: `translate(${sx}px, ${sy}px) scale(1)`,
+        opacity: 1
+    });
+
+    useEffect(() => {
+        // Trigger animation next frame
+        requestAnimationFrame(() => {
+            setStyle({
+                transform: `translate(${tx}px, ${ty}px) scale(0.2)`,
+                opacity: 0
+            });
+        });
+        
+        const t = setTimeout(onComplete, 500); // Matches duration
+        return () => clearTimeout(t);
+    }, []);
+
+    return (
+        <div 
+            className="fixed top-0 left-0 transition-all duration-500 ease-in-out pointer-events-none z-[100]" 
+            style={style}
+        >
+             {/* Offset to center the 64x64 icon on the coordinate point */}
+            <div style={{ transform: 'translate(-50%, -50%)' }}>
+                <NeonThumbsUp className="w-16 h-16" />
+            </div>
+        </div>
+    );
+};
+
 const UIOverlay: React.FC<Props> = ({ 
   currentPreset, onPresetChange, playState, setPlayState, 
   onGenerateStart, isRecording, onToggleRecord, octave, onOctaveChange,
@@ -221,7 +299,8 @@ const UIOverlay: React.FC<Props> = ({
   isCameraActive, onToggleCamera, isSounding, onRandomize,
   crossFader, onCrossFaderChange, onRevertPreset,
   onGrowl, currentGrowlName, onChop,
-  userPatches, onLoadPatch, onBigSave, saveButtonText
+  userPatches, onLoadPatch, onBigSave, saveButtonText,
+  nextSaveSlotIndex
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [hasRandomized, setHasRandomized] = useState(false);
@@ -232,109 +311,30 @@ const UIOverlay: React.FC<Props> = ({
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isAltPressed, setIsAltPressed] = useState(false);
   const [isEscPressed, setIsEscPressed] = useState(false);
+  
+  // Animation Refs & State
+  const saveBtnRef = useRef<HTMLButtonElement>(null);
+  const presetBtnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [flyingThumb, setFlyingThumb] = useState<{sx:number, sy:number, tx:number, ty:number, id:number} | null>(null);
 
-  // Animation Refs for Multiple Floating Buttons
-  // 2 Growl, 2 Chaos, 2 RunBack, 2 Chop
-  const growl1Ref = useRef<HTMLDivElement>(null);
-  const growl2Ref = useRef<HTMLDivElement>(null);
-  const chaos1Ref = useRef<HTMLDivElement>(null);
-  const chaos2Ref = useRef<HTMLDivElement>(null);
-  const runBack1Ref = useRef<HTMLDivElement>(null);
-  const runBack2Ref = useRef<HTMLDivElement>(null);
-  const chop1Ref = useRef<HTMLDivElement>(null);
-  const chop2Ref = useRef<HTMLDivElement>(null);
-
-  // Central Physics State for all 8 buttons (HOPPING LOGIC)
-  const physicsState = useRef([
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 280, height: 100 },
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 280, height: 100 },
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 220, height: 80 }, 
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 220, height: 80 },
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 240, height: 80 }, 
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 240, height: 80 },
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 260, height: 80 },
-      { lastJumpIdx: -1, startX: 0, targetX: 0, jumpHeight: 0, width: 260, height: 80 },
-  ]);
-
-  // Hopping Animation for All Floating Buttons
-  useEffect(() => {
-    if (playState !== PlayState.PLAYING) return;
-    
-    // Init state on mount (center them)
-    const vwInit = window.innerWidth;
-    physicsState.current.forEach(p => {
-        p.lastJumpIdx = -1;
-        p.startX = vwInit / 2 - p.width / 2;
-        p.targetX = vwInit / 2 - p.width / 2;
-    });
-
-    const refs = [growl1Ref, growl2Ref, chaos1Ref, chaos2Ref, runBack1Ref, runBack2Ref, chop1Ref, chop2Ref];
-
-    let animId: number;
-    const animate = () => {
-        const now = Date.now();
-        const bpm = arpSettings.bpm || 120;
-        const beatDur = 60000 / bpm;
-        // 2 Jumps per Bar (1 Bar = 4 Beats) => 1 Jump = 2 Beats
-        const jumpDur = beatDur * 2; 
-
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        // Safe area: Above the dashboard (approx 280px high)
-        const dashboardHeight = 280;
-        const safeGroundY = vh - dashboardHeight; 
+  const handleBigSaveClick = () => {
+    if (saveBtnRef.current) {
+        const sRect = saveBtnRef.current.getBoundingClientRect();
+        // Target is the button for the NEXT save slot (passed from App)
+        const tRect = presetBtnRefs.current[nextSaveSlotIndex]?.getBoundingClientRect();
         
-        physicsState.current.forEach((obj, i) => {
-            const btn = refs[i].current;
-            if (!btn) return;
-            
-            // Calculate current jump cycle
-            const jumpIndex = Math.floor(now / jumpDur);
-            const phase = (now % jumpDur) / jumpDur; // 0 to 1
-
-            // Trigger New Jump Target
-            if (jumpIndex > obj.lastJumpIdx) {
-                obj.lastJumpIdx = jumpIndex;
-                obj.startX = obj.targetX;
-                
-                // Pick new target X strictly within bounds
-                // "Never hit left or right wall"
-                const maxX = vw - obj.width;
-                obj.targetX = Math.random() * maxX;
-                
-                // Calculate max safe height for this jump
-                // "Never hit top of screen" => y >= 0
-                // ground is at safeGroundY - obj.height
-                // Jump must not exceed groundY (which would put it at 0)
-                const groundLevel = safeGroundY - obj.height;
-                const maxJumpH = groundLevel - 20; // 20px padding from top
-                const minJumpH = 100; // Minimum hop height
-                
-                obj.jumpHeight = minJumpH + Math.random() * (maxJumpH - minJumpH);
-            }
-
-            // Calculate Position
-            const groundLevel = safeGroundY - obj.height;
-            
-            // Y: Arch (Parabolic Hop)
-            const yArch = Math.sin(phase * Math.PI);
-            const yPos = groundLevel - (yArch * obj.jumpHeight);
-            
-            // X: Linear Move
-            const xPos = obj.startX + (obj.targetX - obj.startX) * phase;
-
-            // Apply
-            btn.style.left = '0px';
-            btn.style.top = '0px';
-            btn.style.transform = `translate(${xPos}px, ${yPos}px)`;
-        });
-
-        animId = requestAnimationFrame(animate);
-    };
-    
-    animId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animId);
-  }, [playState, arpSettings.bpm]);
+        if (tRect) {
+             setFlyingThumb({
+                 sx: sRect.left + sRect.width / 2,
+                 sy: sRect.top + sRect.height / 2,
+                 tx: tRect.left + tRect.width / 2,
+                 ty: tRect.top + tRect.height / 2,
+                 id: Date.now()
+             });
+        }
+    }
+    onBigSave();
+  };
 
   // Keyboard mapping
   const NOTE_MAP: Record<string, number> = {
@@ -570,7 +570,22 @@ const UIOverlay: React.FC<Props> = ({
             from { transform: rotate(360deg); }
             to { transform: rotate(0deg); }
         }
+        @keyframes splat-dance {
+            0%, 100% { transform: scale(2) rotate(0deg); }
+            25% { transform: scale(2.1) rotate(-2deg); }
+            50% { transform: scale(2) rotate(0deg); }
+            75% { transform: scale(2.1) rotate(2deg); }
+        }
       `}</style>
+
+      {/* FLYING THUMB ANIMATION LAYER */}
+      {flyingThumb && (
+          <FlyingThumbImpl 
+             key={flyingThumb.id} 
+             {...flyingThumb} 
+             onComplete={() => setFlyingThumb(null)} 
+          />
+      )}
 
       {/* Growl Notification - Highest Priority Alert (z-[60]) */}
       {currentGrowlName && (
@@ -581,167 +596,89 @@ const UIOverlay: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Funky Floating Buttons - Press Priority Layering */}
+      {/* CENTRAL CONTROL GRID (Replacing Floating Buttons) */}
       {playState === PlayState.PLAYING && (
-        <>
-            {/* 2 Growl Buttons - Priority 1 (Highest Interaction) -> z-[50] */}
-            {[growl1Ref, growl2Ref].map((ref, idx) => {
-                return (
-                <div 
-                    key={`growl-${idx}`}
-                    ref={ref}
-                    className="absolute top-0 left-0 z-[50] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-auto w-[500px] h-[300px]">
+            <div className="grid grid-cols-2 grid-rows-2 gap-4 w-full h-full">
+                
+                {/* TOP LEFT: CHOP IT UP (Gate 1/64) */}
+                <button
+                    onClick={onChop}
+                    className={`
+                        group relative flex flex-col items-center justify-center
+                        bg-gradient-to-r from-orange-400 via-red-500 to-yellow-500
+                        rounded-2xl border-4 border-black
+                        transition-all duration-150
+                        hover:opacity-75 hover:scale-[1.02]
+                        active:opacity-100 active:scale-95 active:shadow-none
+                        shadow-[6px_6px_0px_#000]
+                        opacity-50
+                    `}
                 >
-                     <button
-                        onClick={onGrowl}
-                        className={`
-                            group
-                            bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600
-                            text-white font-black text-5xl italic tracking-tighter
-                            px-10 py-6
-                            rounded-3xl
-                            border-4 border-black
-                            active:translate-y-2 active:shadow-none
-                            transition-all duration-200 ease-elastic
-                            flex items-center gap-4
-                            ${isAltPressed || currentGrowlName
-                                ? 'shadow-[12px_12px_0px_#fff] scale-110' // Simulate Hover/Pop
-                                : 'shadow-[8px_8px_0px_#000] hover:shadow-[12px_12px_0px_#fff] hover:scale-110'} 
-                        `}
-                     >
-                        <Skull className="w-12 h-12 animate-[bounce_0.5s_infinite]" strokeWidth={2.5} />
-                        <div className="flex flex-col items-start leading-none">
-                            <span className="drop-shadow-md">GRRRR!</span>
-                            <span className="text-xs font-mono font-bold opacity-70 tracking-widest">(ALT)</span>
-                        </div>
-                     </button>
-                </div>
-            )})}
+                    <Scissors className="w-10 h-10 mb-2 animate-[snip_0.4s_ease-in-out_infinite] text-white drop-shadow-md" strokeWidth={3} />
+                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">CHOP IT UP</span>
+                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(CLICK)</span>
+                </button>
 
-            {/* 2 Chaos Buttons - Priority 2 -> z-[40] */}
-            {[chaos1Ref, chaos2Ref].map((ref, idx) => (
-                <div 
-                    key={`chaos-${idx}`}
-                    ref={ref}
-                    className="absolute top-0 left-0 z-[40] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+                {/* TOP RIGHT: GRRRR! (Growl) */}
+                <button
+                    onClick={onGrowl}
+                    className={`
+                        group relative flex flex-col items-center justify-center
+                        bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600
+                        rounded-2xl border-4 border-black
+                        transition-all duration-150
+                        hover:opacity-75 hover:scale-[1.02]
+                        active:opacity-100 active:scale-95 active:shadow-none
+                        shadow-[6px_6px_0px_#000]
+                        ${isAltPressed || currentGrowlName ? 'opacity-100 scale-[1.02]' : 'opacity-50'}
+                    `}
                 >
-                     <button
-                        onClick={() => { onRandomize(); setHasRandomized(true); }}
-                        className={`
-                            group
-                            bg-gradient-to-r from-red-500 via-purple-500 to-blue-600
-                            text-white font-black text-4xl italic tracking-tighter
-                            px-10 py-6
-                            rounded-full
-                            border-4 border-black
-                            active:translate-y-2 active:shadow-none
-                            transition-all duration-200 ease-elastic
-                            flex items-center gap-2
-                            ${isSpacePressed 
-                                ? 'shadow-[10px_10px_0px_#fff] scale-110' // Simulate Hover/Pop
-                                : 'shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110'}
-                        `}
-                     >
-                        <Wand2 className="w-8 h-8 animate-spin" strokeWidth={2.5} />
-                        <div className="flex flex-col items-center leading-none">
-                            <span className="drop-shadow-md">CHAOS</span>
-                            <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(SPACE BAR)</span>
-                        </div>
-                     </button>
-                </div>
-            ))}
+                    <Skull className="w-10 h-10 mb-2 animate-[bounce_0.5s_infinite] text-white drop-shadow-md" strokeWidth={3} />
+                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">GRRRR!</span>
+                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ALT)</span>
+                </button>
 
-            {/* 2 CHOP IT UP Buttons - Priority 3 -> z-[35] */}
-            {[chop1Ref, chop2Ref].map((ref, idx) => (
-                <div 
-                    key={`chop-${idx}`}
-                    ref={ref}
-                    className="absolute top-0 left-0 z-[35] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+                {/* BOTTOM LEFT: RUN BACK (Undo/ESC) */}
+                <button
+                    onClick={() => { onRevertPreset(); setHasReverted(true); }}
+                    className={`
+                        group relative flex flex-col items-center justify-center
+                        bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600
+                        rounded-2xl border-4 border-black
+                        transition-all duration-150
+                        hover:opacity-75 hover:scale-[1.02]
+                        active:opacity-100 active:scale-95 active:shadow-none
+                        shadow-[6px_6px_0px_#000]
+                        ${isEscPressed ? 'opacity-100 scale-[1.02]' : 'opacity-50'}
+                    `}
                 >
-                     <button
-                        onClick={onChop}
-                        className={`
-                            group
-                            bg-gradient-to-r from-orange-400 via-red-500 to-yellow-500
-                            text-white font-black text-4xl italic tracking-tighter
-                            px-8 py-5
-                            rounded-2xl
-                            border-4 border-black
-                            active:translate-y-2 active:shadow-none
-                            transition-all duration-200 ease-elastic
-                            flex items-center gap-3
-                            shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110
-                        `}
-                     >
-                        <Scissors className="w-8 h-8 animate-[snip_0.4s_ease-in-out_infinite]" strokeWidth={3} />
-                        <div className="flex flex-col items-start leading-none">
-                            <span className="drop-shadow-md">CHOP IT UP</span>
-                            <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(CLICK)</span>
-                        </div>
-                     </button>
-                </div>
-            ))}
+                    <RotateCcw className="w-10 h-10 mb-2 animate-[reverse-spin_1.5s_linear_infinite] text-white drop-shadow-md" strokeWidth={3} />
+                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">RUN BACK</span>
+                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ESC)</span>
+                </button>
 
-            {/* 2 Run it Back Buttons - Priority 4 (Lowest Interaction) -> z-[30] */}
-            {[runBack1Ref, runBack2Ref].map((ref, idx) => (
-                <div 
-                    key={`runback-${idx}`}
-                    ref={ref}
-                    className="absolute top-0 left-0 z-[30] pointer-events-auto mix-blend-hard-light hover:mix-blend-normal transition-colors"
+                {/* BOTTOM RIGHT: CHAOS (Random) */}
+                <button
+                    onClick={() => { onRandomize(); setHasRandomized(true); }}
+                    className={`
+                        group relative flex flex-col items-center justify-center
+                        bg-gradient-to-r from-red-500 via-purple-500 to-blue-600
+                        rounded-2xl border-4 border-black
+                        transition-all duration-150
+                        hover:opacity-75 hover:scale-[1.02]
+                        active:opacity-100 active:scale-95 active:shadow-none
+                        shadow-[6px_6px_0px_#000]
+                        ${isSpacePressed ? 'opacity-100 scale-[1.02]' : 'opacity-50'}
+                    `}
                 >
-                     <button
-                        onClick={() => { onRevertPreset(); setHasReverted(true); }}
-                        className={`
-                            group
-                            bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600
-                            text-white font-black text-4xl italic tracking-tighter
-                            px-8 py-5
-                            rounded-2xl
-                            border-4 border-black
-                            active:translate-y-2 active:shadow-none
-                            transition-all duration-200 ease-elastic
-                            flex items-center gap-3
-                            ${isEscPressed 
-                                ? 'shadow-[10px_10px_0px_#fff] scale-110' // Simulate Hover/Pop
-                                : 'shadow-[6px_6px_0px_#000] hover:shadow-[10px_10px_0px_#fff] hover:scale-110'}
-                        `}
-                     >
-                        <RotateCcw className="w-8 h-8 animate-[reverse-spin_1.5s_linear_infinite]" strokeWidth={3} />
-                        <div className="flex flex-col items-start leading-none">
-                            <span className="drop-shadow-md">Run it Back</span>
-                            <span className="text-[10px] font-mono font-bold opacity-70 tracking-widest mt-0.5">(ESC)</span>
-                        </div>
-                     </button>
-                </div>
-            ))}
-        </>
-      )}
+                    <Wand2 className="w-10 h-10 mb-2 animate-spin text-white drop-shadow-md" strokeWidth={3} />
+                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">CHAOS</span>
+                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(SPACE)</span>
+                </button>
 
-      {/* Floating Hints - Ensure on top of buttons (z-[70]) */}
-      {!hasRandomized && (
-         <div className="fixed top-24 left-1/2 -translate-x-1/2 animate-bounce flex flex-col items-center gap-2 opacity-80 z-[70]">
-             <div className="bg-white/10 backdrop-blur px-4 py-2 rounded-full border border-white/20 text-teal-300 font-mono text-sm flex items-center gap-2">
-                 <span className="border border-teal-300/50 rounded px-1 text-xs">SPACE</span>
-                 <span>to Randomize</span>
-             </div>
-             <ChevronDown className="text-teal-300" />
-         </div>
-      )}
-
-      {hasRandomized && !hasReverted && (
-           <div className="fixed top-24 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-80 z-[70] pointer-events-none">
-             <div className="bg-black/80 backdrop-blur px-4 py-2 rounded-lg border border-white/20 text-white font-mono text-xs flex items-center gap-4 shadow-xl">
-                 <div className="flex items-center gap-2">
-                     <span className="border border-white/40 rounded px-1.5 py-0.5 bg-white/10">SPACE</span>
-                     <span className="text-gray-300">New Sound</span>
-                 </div>
-                 <div className="w-px h-4 bg-white/20"></div>
-                 <div className="flex items-center gap-2">
-                     <span className="border border-white/40 rounded px-1.5 py-0.5 bg-white/10">ESC</span>
-                     <span className="text-gray-300">Go Back</span>
-                 </div>
-             </div>
-         </div>
+            </div>
+        </div>
       )}
 
       {/* HEADER */}
@@ -765,14 +702,18 @@ const UIOverlay: React.FC<Props> = ({
               <button 
                   onClick={onToggleCamera}
                   className={`
-                      flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all w-full justify-center
+                      group relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-xs tracking-wider transition-all w-full
+                      border-2 border-black shadow-[4px_4px_0px_#000]
+                      active:translate-x-[2px] active:translate-y-[2px] active:shadow-none
                       ${isCameraActive 
-                          ? 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]' 
-                          : 'bg-white/10 text-gray-300 border border-white/10 hover:bg-white/20'}
+                          ? 'bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white animate-pulse' 
+                          : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-teal-400 text-black hover:brightness-110 hover:scale-[1.02]'}
                   `}
               >
-                  <Camera size={16} />
-                  {isCameraActive ? 'CAMERA ON' : 'CAMERA OFF'}
+                  <Camera size={18} className={isCameraActive ? "animate-spin" : "group-hover:rotate-12 transition-transform"} />
+                  <span className="drop-shadow-md italic">
+                      {isCameraActive ? 'CAMERA OFF' : 'CAMERA ON'}
+                  </span>
               </button>
               {!isCameraActive && !hasRandomized && (
                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex flex-col items-center animate-bounce pointer-events-none">
@@ -782,14 +723,26 @@ const UIOverlay: React.FC<Props> = ({
           </div>
         </div>
         
-        {/* BIG SAVE BUTTON - Top Center */}
-        <div className="absolute left-1/2 -translate-x-1/2 top-4 pointer-events-auto">
+        {/* BIG SAVE BUTTON - Top Center (Neon Paint Splatter Style) */}
+        <div className="absolute left-1/2 -translate-x-1/2 top-4 pointer-events-auto z-20">
             <button
-                onClick={onBigSave}
-                className="bg-zinc-900 hover:bg-zinc-800 border-2 border-teal-500 text-teal-400 hover:text-teal-300 px-6 py-3 rounded-xl font-black text-xl italic shadow-[0_0_15px_rgba(45,212,191,0.4)] hover:shadow-[0_0_25px_rgba(45,212,191,0.6)] hover:-translate-y-1 transition-all duration-150 flex items-center gap-2 min-w-[200px] justify-center"
+                ref={saveBtnRef}
+                onClick={handleBigSaveClick}
+                className="relative group w-48 h-32 flex items-center justify-center focus:outline-none transition-transform active:scale-95"
             >
-                <Save size={20} />
-                <span>SAVE: {saveButtonText}</span>
+                <NeonThumbsUp 
+                    className={`absolute inset-0 w-full h-full drop-shadow-[0_0_20px_rgba(217,70,239,0.5)] ${isSounding ? 'animate-[splat-dance_0.2s_ease-in-out_infinite]' : 'animate-[splat-dance_3s_ease-in-out_infinite]'}`} 
+                />
+                
+                {/* Rotating, Pulsating Text */}
+                <span 
+                    className={`
+                        relative z-10 font-black text-2xl italic tracking-tighter text-white drop-shadow-[0_2px_0_rgba(0,0,0,0.8)] translate-y-[40px]
+                        ${isSounding ? 'animate-pulse text-yellow-200' : ''}
+                    `}
+                >
+                    {saveButtonText}
+                </span>
             </button>
         </div>
 
@@ -817,25 +770,34 @@ const UIOverlay: React.FC<Props> = ({
                 </button>
             </div>
 
-            {/* PRESETS ROW - DYNAMIC */}
+            {/* PRESETS ROW - DYNAMIC COLOR & WIDTH */}
             <div className="flex gap-1 bg-black/60 backdrop-blur p-1 rounded-xl border border-white/10 flex-wrap justify-end max-w-[400px]">
-                {userPatches.map((p, idx) => (
+                {userPatches.map((p, idx) => {
+                    const isCurrent = currentPreset.description === p.preset.description;
+                    const color = p.preset.physics.colorBase || '#14b8a6'; // fallback teal
+                    
+                    return (
                     <button
                         key={idx}
+                        ref={(el) => (presetBtnRefs.current[idx] = el)}
                         onMouseDown={() => {
                             onLoadPatch(p);
                         }}
+                        style={{
+                            borderColor: color,
+                            backgroundColor: isCurrent ? color : 'rgba(255,255,255,0.05)',
+                            color: isCurrent ? '#000' : color,
+                            boxShadow: isCurrent ? `0 0 10px ${color}` : 'none'
+                        }}
                         className={`
-                            w-auto px-2 h-6 rounded flex items-center justify-center text-[9px] font-bold transition-all min-w-[1.5rem]
-                            ${currentPreset.description === p.preset.description
-                                ? 'bg-teal-500 text-black shadow-lg scale-110' 
-                                : 'bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-300'}
+                            w-auto px-2 h-6 rounded border flex items-center justify-center text-[9px] font-black uppercase transition-all min-w-[1.5rem]
+                            ${isCurrent ? 'scale-110 z-10' : 'hover:bg-white/10'}
                         `}
                         title={p.preset.description}
                     >
                         {p.label}
                     </button>
-                ))}
+                )})}
             </div>
             
             {/* Favorites List (Mini) */}
@@ -883,7 +845,7 @@ const UIOverlay: React.FC<Props> = ({
         )}
 
         {/* UNIFIED SYNTH DASHBOARD - 80s Boombox Style */}
-        <div className="w-[98%] max-w-none mx-auto bg-zinc-900 border-4 border-zinc-700 rounded-t-lg shadow-2xl overflow-hidden backdrop-blur-xl relative">
+        <div className="w-[98%] max-w-none mx-auto bg-zinc-900 border-4 border-zinc-700 rounded-t-lg shadow-2xl overflow-hidden backdrop-blur-xl relative translate-y-[10px]">
           
           {/* Decorative Texture/Stripes */}
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 via-yellow-500 to-teal-500 opacity-80" />
@@ -1008,7 +970,7 @@ const UIOverlay: React.FC<Props> = ({
                                 type="range" min="0" max="1" step="0.01"
                                 value={crossFader}
                                 onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))}
-                                className="flex-1 min-w-0 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize min-w-0"
+                                className="flex-1 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize min-w-0"
                              />
                              <span className="text-[7px] font-bold text-teal-500">SYN</span>
                          </div>
@@ -1182,7 +1144,7 @@ const UIOverlay: React.FC<Props> = ({
                              <div className="text-[6px] text-zinc-500 uppercase font-bold tracking-wider">OCT</div>
                          </div>
                          
-                         <div className="flex flex-col items-center gap-0.5 flex-1 items-center">
+                         <div className="flex flex-col items-center gap-0.5 flex-1 items-center justify-center">
                              <VolumeSlider value={synthVolume} onChange={onSynthVolumeChange} vertical />
                              <div className="text-[6px] text-zinc-500 uppercase font-bold tracking-wider">VOL</div>
                          </div>

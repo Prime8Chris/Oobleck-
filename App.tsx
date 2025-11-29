@@ -430,14 +430,21 @@ const App: React.FC = () => {
 
   const handleBigSave = () => {
     const term = SLANG_TERMS[currentSlangIndex];
+    const newLabel = `${term} (${saveSlotIndex + 1})`;
     
-    // Create new Patch object with ALL settings
+    // Update preset description to match label for uniqueness and UI highlighting
+    const uniquePreset = { ...preset, description: newLabel };
+
+    // Create new Patch object with ALL settings EXCEPT Gate (uses default/safe)
     const newPatch: UserPatch = {
-        label: `${term} (${saveSlotIndex + 1})`,
-        preset: { ...preset },
+        label: newLabel,
+        preset: uniquePreset,
         fxState: { ...fxState },
         drumSettings: { ...drumSettings },
-        gateSettings: { ...gateSettings },
+        // Per instructions: "remove gate settings from handleBigSave"
+        // We effectively save a 'default' or 'safe' gate state so loading this patch
+        // doesn't force a weird gate config.
+        gateSettings: { enabled: false, pattern: 'TRANCE', division: '1/32', mix: 1.0 },
         arpSettings: { ...arpSettings },
         octave: octave
     };
@@ -446,40 +453,58 @@ const App: React.FC = () => {
     const newPatches = [...userPatches];
     newPatches[saveSlotIndex] = newPatch;
     setUserPatches(newPatches);
+    
+    // Update current preset state to match the saved one (so it highlights in UI)
+    setPreset(uniquePreset);
 
     // Cycle logic
     setSaveSlotIndex((prev) => (prev + 1) % 10);
     setCurrentSlangIndex((prev) => (prev + 1) % SLANG_TERMS.length);
   };
 
-  const handleLoadPatch = (patch: UserPatch) => {
-      // Set History before switching
+  const handleLoadPatch = useCallback((patch: UserPatch) => {
+      // Capture current state to avoid race conditions
+      const wasDrumming = drumSettings.enabled;
+
+      // Set History
       setPreviousPreset(preset);
       setPreviousFxState(fxState);
       setPreviousDrumSettings(drumSettings);
       setPreviousGateSettings(gateSettings);
 
-      // Restore All States
+      // Restore States
       setPreset(patch.preset);
       setFxState(patch.fxState);
-      setDrumSettings(patch.drumSettings);
-      setGateSettings(patch.gateSettings);
+      
+      // Preserve rhythm running state:
+      // If rhythm is currently ON, keep it ON (ignore patch disabled state).
+      // If rhythm is currently OFF, load patch state (which might start it).
+      const newDrumSettings = {
+          ...patch.drumSettings,
+          enabled: drumSettings.enabled || patch.drumSettings.enabled
+      };
+      setDrumSettings(newDrumSettings);
+
+      // GATE SETTINGS ARE IGNORED ON LOAD
+      // setGateSettings(patch.gateSettings); 
+      
       setArpSettings(patch.arpSettings);
       setOctave(patch.octave);
       
-      // Update Baseline Gate (User probably wants the gate speed stored in the patch)
-      baselineGateDivision.current = patch.gateSettings.division;
+      // Update Baseline Gate ignored
+      // baselineGateDivision.current = patch.gateSettings.division;
 
       // Force Engine Update Immediately
       if (audioEngineRef.current) {
           audioEngineRef.current.setParams(patch.preset.audio);
           audioEngineRef.current.setFx(patch.fxState);
-          audioEngineRef.current.setDrumSettings(patch.drumSettings);
-          audioEngineRef.current.setGateSettings(patch.gateSettings);
+          audioEngineRef.current.setDrumSettings(newDrumSettings);
+          // GATE SETTINGS ARE IGNORED ON LOAD
+          // audioEngineRef.current.setGateSettings(patch.gateSettings);
           audioEngineRef.current.setArpSettings(patch.arpSettings);
           audioEngineRef.current.setOctave(patch.octave);
       }
-  };
+  }, [preset, fxState, drumSettings, gateSettings, octave]);
 
   // --- DROP LOGIC: Precise Revert on Target Step ---
   useEffect(() => {
@@ -682,7 +707,7 @@ const App: React.FC = () => {
     // 1. Random Preset
     const randomPreset = ALL_PRESETS[Math.floor(Math.random() * ALL_PRESETS.length)];
     
-    // Randomize Visuals on top of the preset for extra chaos
+    // Randomize Visuals for chaos
     const shapes: VisualShape[] = ['circle', 'square', 'triangle', 'hexagon', 'cross', 'star'];
     const cams: CameraMode[] = ['static', 'sway', 'drift', 'pulse', 'shake', 'spin', 'zoom'];
     const styles: RenderStyle[] = ['particles', 'wireframe', 'mosaic', 'scanner'];
@@ -850,6 +875,7 @@ const App: React.FC = () => {
         onLoadPatch={handleLoadPatch}
         onBigSave={handleBigSave}
         saveButtonText={SLANG_TERMS[currentSlangIndex]}
+        nextSaveSlotIndex={saveSlotIndex}
       />
       
       <div className="md:hidden fixed bottom-0 w-full bg-yellow-500/10 text-yellow-200 text-[10px] p-1 text-center backdrop-blur-sm z-50 pointer-events-none">
