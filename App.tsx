@@ -12,6 +12,8 @@ const SLANG_TERMS = ["FRESH", "DOPE", "BITCHIN'", "SICK", "Yoooo", "NASTY", "MIN
 const App: React.FC = () => {
   const [playState, setPlayState] = useState<PlayState>(PlayState.IDLE);
   const [preset, setPreset] = useState<SynthPreset>(DEFAULT_PRESET);
+  
+  // History State for "Run It Back" (ESC)
   const [previousPreset, setPreviousPreset] = useState<SynthPreset | null>(null);
   const [previousFxState, setPreviousFxState] = useState<FxState | null>(null);
   const [previousDrumSettings, setPreviousDrumSettings] = useState<DrumSettings | null>(null);
@@ -27,6 +29,7 @@ const App: React.FC = () => {
   const [crossFader, setCrossFader] = useState(0.5); // 0 = Drums, 1 = Synth, 0.5 = Mix
   
   const [currentGrowlName, setCurrentGrowlName] = useState<string | null>(null);
+  const [isChaosLocked, setIsChaosLocked] = useState(false);
 
   // Defaults for initialization
   const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
@@ -35,7 +38,7 @@ const App: React.FC = () => {
   const defaultGate: GateSettings = { enabled: false, pattern: 'TRANCE', division: '1/32', mix: 1.0 };
 
   // Dynamic Patch State (Full System State)
-  const [userPatches, setUserPatches] = useState<UserPatch[]>(
+  const [userPatches, setUserPatches] = useState<(UserPatch | null)[]>(
       ALL_PRESETS.map((p, i) => ({
           label: i === 9 ? '0' : (i + 1).toString(),
           preset: p,
@@ -50,11 +53,10 @@ const App: React.FC = () => {
   const [saveSlotIndex, setSaveSlotIndex] = useState(0);
   const [currentSlangIndex, setCurrentSlangIndex] = useState(0);
 
-
   // Visual Effect Sync
   const [activeVisualEffect, setActiveVisualEffect] = useState<number | null>(null);
   
-  // Quantization Ref
+  // Quantization Ref for Visuals
   const pendingVisualEffectRef = useRef<number | null>(null);
   
   // Shared Input Ref for coordinate handling (Webcam or Mouse)
@@ -80,9 +82,8 @@ const App: React.FC = () => {
   
   // Drop Logic Refs
   const waitingForDropRef = useRef(false);
-  const dropTargetStepRef = useRef<number | null>(null);
   
-  // Snapshot Refs
+  // Snapshot Refs for Performance Actions
   const preGrowlGateSettings = useRef<GateSettings | null>(null);
   const preGrowlPreset = useRef<SynthPreset | null>(null);
   const preGrowlFxState = useRef<FxState | null>(null);
@@ -143,676 +144,420 @@ const App: React.FC = () => {
     }
   }, [playState]);
 
-  // Handle Preset Changes
+  // Sync Parameters with Audio Engine
   useEffect(() => {
-    if (audioEngineRef.current) {
-      audioEngineRef.current.setParams(preset.audio);
-    }
+    if (audioEngineRef.current) audioEngineRef.current.setParams(preset.audio);
   }, [preset]);
 
-  // Handle FX Changes
   useEffect(() => {
-    if (audioEngineRef.current) {
-      audioEngineRef.current.setFx(fxState);
-    }
+    if (audioEngineRef.current) audioEngineRef.current.setFx(fxState);
   }, [fxState]);
 
-  // Handle Arp Changes
   useEffect(() => {
-    if (audioEngineRef.current) {
-        audioEngineRef.current.setArpSettings(arpSettings);
-    }
+    if (audioEngineRef.current) audioEngineRef.current.setArpSettings(arpSettings);
   }, [arpSettings]);
 
-  // Handle Volume Changes (Synth + Crossfader)
   useEffect(() => {
-    if (audioEngineRef.current) {
-        // Apply Crossfader attenuation: Left (0) = Synth 0%, Right (1) = Synth 100%
-        const mix = crossFader;
-        const effectiveVol = synthVolume * mix;
-        audioEngineRef.current.setSynthVolume(effectiveVol);
-    }
-  }, [synthVolume, crossFader]);
+    if (audioEngineRef.current) audioEngineRef.current.setDrumSettings(drumSettings);
+  }, [drumSettings]);
 
-  // Handle Gate Changes
   useEffect(() => {
-      if (audioEngineRef.current) {
-          audioEngineRef.current.setGateSettings(gateSettings);
-      }
+    if (audioEngineRef.current) audioEngineRef.current.setGateSettings(gateSettings);
   }, [gateSettings]);
 
-  // Custom handler for Gate settings changes from UI to update baseline
-  const handleManualGateChange = (newSettings: GateSettings) => {
-      setGateSettings(newSettings);
-      if (newSettings.division !== baselineGateDivision.current) {
-          baselineGateDivision.current = newSettings.division;
-      }
-  };
-
-  // Handle Drum Changes & Genre Switching Logic
-  const handleDrumChange = (newSettings: DrumSettings) => {
-      // Check if genre changed
-      if (newSettings.genre !== drumSettings.genre) {
-          const preset = GENRE_PRESETS[newSettings.genre];
-          if (preset) {
-              // Update pattern and BPM based on genre
-              const updatedSettings = {
-                  ...newSettings,
-                  pattern: preset.pattern
-              };
-              setDrumSettings(updatedSettings);
-              setArpSettings(prev => ({ ...prev, bpm: preset.bpm }));
-              return;
-          }
-      }
-      setDrumSettings(newSettings);
-  };
-
-  // Push changes to engine (Drum + Crossfader)
   useEffect(() => {
-    if (audioEngineRef.current) {
-        // Apply Crossfader attenuation: Left (0) = Drums 100%, Right (1) = Drums 0%
-        const mix = 1 - crossFader;
-        const effectiveVol = drumSettings.volume * mix;
-        audioEngineRef.current.setDrumSettings({
-            ...drumSettings,
-            volume: effectiveVol
-        });
-    }
-  }, [drumSettings, crossFader]);
+    if (audioEngineRef.current) audioEngineRef.current.setSynthVolume(synthVolume);
+  }, [synthVolume]);
 
-  const handleRevertPreset = useCallback(() => {
-      if (previousPreset) {
-          const tempPreset = preset;
-          setPreset(previousPreset);
-          setPreviousPreset(tempPreset);
+  useEffect(() => {
+    if (audioEngineRef.current) audioEngineRef.current.setOctave(octave);
+  }, [octave]);
 
-          if (previousFxState) {
-              const tempFx = fxState;
-              setFxState(previousFxState);
-              setPreviousFxState(tempFx);
-          }
-          
-          if (previousDrumSettings) {
-             const tempDrums = drumSettings;
-             setDrumSettings(previousDrumSettings);
-             setPreviousDrumSettings(tempDrums);
-          }
-          
-          if (previousGateSettings) {
-             const tempGate = gateSettings;
-             setGateSettings(previousGateSettings);
-             setPreviousGateSettings(tempGate);
-             // Also restore baseline if gate was reverted
-             baselineGateDivision.current = previousGateSettings.division;
-          }
+
+  // --- VISUAL EFFECT GATEKEEPER ---
+  const lastVisualTriggerTime = useRef(0);
+  const triggerVisualEffect = useCallback((effectId: number) => {
+      const now = Date.now();
+      // Cooldown to prevent stacking/lag
+      if (now - lastVisualTriggerTime.current > 200) {
+          setActiveVisualEffect(effectId);
+          lastVisualTriggerTime.current = now;
+          // Reset after short duration
+          setTimeout(() => setActiveVisualEffect(null), 300);
       }
-  }, [previousPreset, previousFxState, previousDrumSettings, previousGateSettings, preset, fxState, drumSettings, gateSettings]);
-
-  const executeRevert = () => {
-      // 1. Cancel Engine Growl (Only if audio engine exists and ready)
-      if (audioEngineRef.current) {
-           audioEngineRef.current.cancelGrowl();
+  }, []);
+  
+  // 32nd Note Quantization for Visuals
+  useEffect(() => {
+      if (pendingVisualEffectRef.current !== null) {
+          triggerVisualEffect(pendingVisualEffectRef.current);
+          pendingVisualEffectRef.current = null;
       }
+  }, [currentStep, triggerVisualEffect]);
 
-      setCurrentGrowlName(null);
 
-      // 2. Restore Snapshot
-      if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
-      if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
-      
-      let restoredGate = preGrowlGateSettings.current;
-      if (!restoredGate) {
-          restoredGate = { enabled: true, pattern: 'TRANCE', division: '1/32', mix: 1.0 };
-      }
-      setGateSettings(restoredGate);
-      baselineGateDivision.current = preGrowlBaselineGate.current;
-
-      // 3. FORCE ENGINE UPDATE IMMEDIATELY
-      if (audioEngineRef.current) {
-           audioEngineRef.current.setParams(preGrowlPreset.current || preset);
-           audioEngineRef.current.setFx(preGrowlFxState.current || fxState);
-           audioEngineRef.current.setGateSettings(restoredGate);
-      }
-      
-      // Reset Flags
-      waitingForDropRef.current = false;
-      dropTargetStepRef.current = null;
-  };
-
-  const handleGrowl = () => {
+  // --- PHYSICS LOOP ---
+  // Calculates Gate Speed Modulation based on Screen Y Position
+  const handlePhysicsUpdate = useCallback((x: number, y: number, speed: number, hardness: number, isClicked: boolean) => {
     if (!audioEngineRef.current) return;
     
-    // Ignore if already waiting for a drop to avoid overwrite issues
-    if (waitingForDropRef.current) return;
-
-    // 1. Snapshot CURRENT state (Pre-Growl)
-    // Only snapshot if the gate is currently enabled/valid. If we are in a weird state, rely on existing.
-    if (gateSettings.enabled) {
-        preGrowlGateSettings.current = { ...gateSettings };
-        preGrowlBaselineGate.current = baselineGateDivision.current;
-    }
-    preGrowlPreset.current = preset;
-    preGrowlFxState.current = fxState;
-
-    // 2. Random ID from 1 to 10
-    const id = Math.floor(Math.random() * 10) + 1;
-    audioEngineRef.current.triggerGrowl(id);
+    // Audio Modulation
+    audioEngineRef.current.modulate(x, y, speed, hardness, isClicked);
     
-    // Randomize Visuals for chaos
-    const shapes: VisualShape[] = ['triangle', 'hexagon', 'star'];
-    const styles: RenderStyle[] = ['wireframe', 'scanner', 'mosaic'];
-    setPreset(prev => ({
-        ...prev,
+    // Is Sounding Check
+    const isNowSounding = speed > 0.1 || isClicked || hardness > 0.1;
+    if (isNowSounding !== wasSoundingRef.current) {
+        setIsSounding(isNowSounding);
+        wasSoundingRef.current = isNowSounding;
+    }
+    
+    // Gate Speed Modulation by Screen Position
+    if (isClicked || speed > 0.5) {
+        // Only modulate if not in a special state
+        if (!waitingForDropRef.current && drumSettings.enabled) {
+            let targetDiv = baselineGateDivision.current;
+            const divisions = GATE_DIVISIONS;
+            const baselineIdx = divisions.indexOf(baselineGateDivision.current);
+
+            if (y < 0.33) {
+                 // TOP: Double Speed (shift left in array)
+                 if (baselineIdx > 0) targetDiv = divisions[Math.max(0, baselineIdx - 1)];
+            } else if (y > 0.66) {
+                 // BOTTOM: Match Baseline (No Slow Down) - as requested
+                 targetDiv = baselineGateDivision.current;
+            } else {
+                 // MIDDLE: Baseline
+                 targetDiv = baselineGateDivision.current;
+            }
+            
+            if (targetDiv !== gateSettings.division) {
+                 setGateSettings(prev => ({ ...prev, division: targetDiv }));
+            }
+        }
+    }
+    
+    // Trigger Visual FX on Hard Interaction
+    if (isClicked && speed > 50) {
+        const randomEffect = Math.floor(Math.random() * 5);
+        pendingVisualEffectRef.current = randomEffect;
+    }
+
+  }, [gateSettings.division, drumSettings.enabled]);
+
+
+  // --- PERFORMANCE HANDLERS ---
+
+  // 1. REVERT (Run It Back / ESC)
+  const handleRevertPreset = useCallback(() => {
+      if (previousPreset) {
+          // Swap Current <-> Previous
+          const tempPreset = preset;
+          const tempFx = fxState;
+          const tempDrums = drumSettings;
+          const tempGate = gateSettings;
+          
+          setPreset(previousPreset);
+          setFxState(previousFxState || defaultFx);
+          setDrumSettings(previousDrumSettings || defaultDrums);
+          setGateSettings(previousGateSettings || defaultGate);
+          
+          // Update History
+          setPreviousPreset(tempPreset);
+          setPreviousFxState(tempFx);
+          setPreviousDrumSettings(tempDrums);
+          setPreviousGateSettings(tempGate);
+          
+          // Update Baseline Ref for Screen Mod
+          if (previousGateSettings) {
+             baselineGateDivision.current = previousGateSettings.division;
+          }
+
+          if (audioEngineRef.current) {
+             audioEngineRef.current.cancelGrowl(); // Ensure clean slate
+          }
+      } else {
+          // No history? Restore pre-growl snapshot if available
+          if (preGrowlGateSettings.current) {
+              setGateSettings(preGrowlGateSettings.current);
+              baselineGateDivision.current = preGrowlGateSettings.current.division;
+          }
+          if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
+          if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
+      }
+      setCurrentGrowlName(null);
+  }, [previousPreset, preset, fxState, drumSettings, gateSettings]);
+
+  // 2. CHAOS MODE (Randomize)
+  const handleRandomize = useCallback(() => {
+    if (isChaosLocked) return;
+
+    // Save History
+    setPreviousPreset(preset);
+    setPreviousFxState(fxState);
+    setPreviousDrumSettings(drumSettings);
+    setPreviousGateSettings(gateSettings);
+
+    // Pick Random Preset
+    const randomPreset = ALL_PRESETS[Math.floor(Math.random() * ALL_PRESETS.length)];
+    
+    // Create new preset ensuring we keep the current note (BaseFreq)
+    const newPreset = {
+        ...randomPreset,
+        audio: {
+            ...randomPreset.audio,
+            baseFreq: preset.audio.baseFreq, // Preserve Note
+            sustain: 1.0 // Force Sustain 100%
+        },
         visual: {
-            ...prev.visual,
-            shape: shapes[Math.floor(Math.random() * shapes.length)],
-            renderStyle: styles[Math.floor(Math.random() * styles.length)],
-            glowIntensity: 1.0,
-            cameraMode: 'shake'
+             ...randomPreset.visual,
+             // Randomize visuals
+             shape: ['circle','square','triangle','hexagon','star'][Math.floor(Math.random()*5)] as VisualShape,
+             renderStyle: ['particles','wireframe','mosaic','scanner'][Math.floor(Math.random()*4)] as RenderStyle,
+             cameraMode: ['static','sway','pulse','shake','spin'][Math.floor(Math.random()*5)] as CameraMode
         }
-    }));
-    
-    const names = [
-        "Growl", "Robotic FM", "Yoi", "Screech", "Reese", 
-        "Laser", "Donk Hybrid", "Beast Roar", "Grind", "Machine"
-    ];
-    
-    setCurrentGrowlName(names[id - 1]);
-    setTimeout(() => setCurrentGrowlName(null), 1500);
+    };
+    setPreset(newPreset);
 
-    if (playState === PlayState.IDLE) {
-        setPlayState(PlayState.PLAYING);
+    // Randomize FX
+    const randomFx: FxState = {
+        delay: Math.random() > 0.5,
+        chorus: Math.random() > 0.7,
+        highpass: Math.random() > 0.8,
+        distortion: Math.random() > 0.6,
+        phaser: Math.random() > 0.7,
+        reverb: true, // Always on
+        crunch: Math.random() > 0.8
+    };
+    setFxState(randomFx);
+    
+    // Force Gate 1/32 and ON
+    const newGate: GateSettings = { ...gateSettings, enabled: true, division: '1/32' };
+    setGateSettings(newGate);
+    baselineGateDivision.current = '1/32';
+    
+    // Force Rhythm ON
+    if (!drumSettings.enabled) {
+        setDrumSettings(prev => ({ ...prev, enabled: true }));
     }
 
-    // 3. FORCE GATE OFF IMMEDIATELY (Growl logic)
-    setGateSettings(prev => ({ ...prev, enabled: false }));
-    audioEngineRef.current.setGateSettings({ ...gateSettings, enabled: false });
+  }, [preset, fxState, drumSettings, gateSettings, isChaosLocked]);
 
-    // 4. CHECK RHYTHM STATUS
-    if (drumSettings.enabled) {
-        // ANALYZE PATTERN for Next Drop
-        const pattern = drumSettings.pattern;
-        const len = pattern.length;
-        let targetStep = -1;
-
-        // Search forward in current loop
-        for (let i = currentStep + 1; i < len; i++) {
-            if (pattern[i].kick || pattern[i].snare) {
-                targetStep = i;
-                break;
-            }
-        }
-        // If not found, search from start (wrap around)
-        if (targetStep === -1) {
-            for (let i = 0; i <= currentStep; i++) {
-                if (pattern[i].kick || pattern[i].snare) {
-                    targetStep = i;
-                    break;
-                }
-            }
-        }
-        // Fallback
-        if (targetStep === -1) targetStep = 0;
-
-        dropTargetStepRef.current = targetStep;
-        waitingForDropRef.current = true;
-    } else {
-        // Rhythm is OFF: Use Time-based fallback
-        setTimeout(() => {
-            executeRevert();
-        }, 1000); 
-    }
-  };
-
-  const handleChop = () => {
-      // 1. Snapshot State (Same as Growl)
-      if (waitingForDropRef.current) return;
-
+  // 3. GROWL (Grrrr!)
+  const handleGrowl = useCallback(() => {
+      // Snapshot
+      preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
       preGrowlFxState.current = fxState;
+      preGrowlBaselineGate.current = baselineGateDivision.current;
 
-      // Determine return state:
-      // If gate was enabled, use it.
-      // If gate was disabled, force return to 1/32 enabled (per user requirement)
-      if (gateSettings.enabled) {
-          preGrowlGateSettings.current = { ...gateSettings };
-          preGrowlBaselineGate.current = baselineGateDivision.current;
-      } else {
-          preGrowlGateSettings.current = { 
-              enabled: true, 
-              pattern: 'TRANCE', 
-              division: '1/32', 
-              mix: 1.0 
-          };
-          preGrowlBaselineGate.current = '1/32';
+      const names = ["Yoi", "Reese", "Laser", "Screech", "Growl", "Grind", "Machine"];
+      const growlId = Math.floor(Math.random() * names.length) + 1; // 1-based index (approx)
+      // Actually audio engine supports 10, map loosely
+      const engineGrowlId = Math.floor(Math.random() * 10) + 1;
+      
+      setCurrentGrowlName(names[Math.floor(Math.random() * names.length)]);
+
+      // 1. Trigger Audio Growl
+      if (audioEngineRef.current) {
+          audioEngineRef.current.triggerGrowl(engineGrowlId);
+          // Force Gate OFF immediately (imperative)
+          audioEngineRef.current.setGateSettings({...gateSettings, enabled: false});
       }
+      
+      // 2. React State Update
+      setGateSettings(prev => ({ ...prev, enabled: false }));
 
-      // 2. Apply Chop (Gate 1/64 ON)
-      baselineGateDivision.current = '1/64';
-      setGateSettings(prev => ({
-          ...prev,
-          enabled: true,
-          division: '1/64'
-      }));
-
-      // 3. Initiate Drop Logic (Revert on next kick/snare)
+      // 3. Setup Drop Logic
       if (drumSettings.enabled) {
-        // ANALYZE PATTERN for Next Drop
-        const pattern = drumSettings.pattern;
-        const len = pattern.length;
-        let targetStep = -1;
+          waitingForDropRef.current = true;
+      } else {
+          // Fallback if no rhythm
+          setTimeout(() => {
+              handleRevertPreset();
+              if (audioEngineRef.current) audioEngineRef.current.cancelGrowl();
+          }, 1000);
+      }
+  }, [gateSettings, preset, fxState, drumSettings, handleRevertPreset]);
 
-        for (let i = currentStep + 1; i < len; i++) {
-            if (pattern[i].kick || pattern[i].snare) {
-                targetStep = i;
-                break;
-            }
-        }
-        if (targetStep === -1) {
-            for (let i = 0; i <= currentStep; i++) {
-                if (pattern[i].kick || pattern[i].snare) {
-                    targetStep = i;
-                    break;
-                }
-            }
-        }
-        if (targetStep === -1) targetStep = 0;
+  // 4. CHOP IT UP
+  const handleChop = useCallback(() => {
+      // Snapshot
+      preGrowlGateSettings.current = gateSettings;
+      preGrowlBaselineGate.current = baselineGateDivision.current;
+      
+      // Target: 1/64 Gate ON
+      const target: GateSettings = { ...gateSettings, enabled: true, division: '1/64' };
+      
+      if (audioEngineRef.current) {
+          audioEngineRef.current.setGateSettings(target);
+      }
+      setGateSettings(target);
+      
+      // Use Drop Logic to Stop
+      if (drumSettings.enabled) {
+          waitingForDropRef.current = true;
+      } else {
+          setTimeout(() => {
+               // Restore
+               if (preGrowlGateSettings.current) setGateSettings(preGrowlGateSettings.current);
+          }, 1000);
+      }
+  }, [gateSettings, drumSettings]);
 
-        dropTargetStepRef.current = targetStep;
-        waitingForDropRef.current = true;
-    } else {
-        setTimeout(() => {
-            executeRevert();
-        }, 1000); 
-    }
-  };
+  // --- DROP LOGIC (Sync to Kick/Snare) ---
+  useEffect(() => {
+      if (waitingForDropRef.current && drumSettings.enabled) {
+          const pattern = drumSettings.pattern;
+          const stepData = pattern[currentStep] || { kick: false, snare: false };
+          
+          if (stepData.kick || stepData.snare) {
+              // EXECUTE DROP
+              
+              if (audioEngineRef.current) {
+                  audioEngineRef.current.cancelGrowl();
+              }
+              
+              // Determine what to revert to
+              let targetGate = preGrowlGateSettings.current;
+              
+              if (previousPreset) {
+                  // If we have history (Chaos -> Growl -> Drop)
+                  setPreset(previousPreset);
+                  setFxState(previousFxState || defaultFx);
+                  // Do NOT revert drums (keep beat flowing)
+                  setPreviousPreset(preset); // Swap history
+              } else {
+                  // Simple Revert (Preset -> Growl -> Drop)
+                  if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
+                  if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
+              }
+              
+              // Ensure Gate returns to something valid (default 1/32 if it was OFF/weird)
+              if (!targetGate || !targetGate.enabled) {
+                  targetGate = { ...gateSettings, enabled: true, division: '1/32' };
+              }
+              
+              // IMPERATIVE RESTORE for punch-in
+              if (audioEngineRef.current && targetGate) {
+                  audioEngineRef.current.setGateSettings(targetGate);
+              }
+              setGateSettings(targetGate);
+              baselineGateDivision.current = targetGate.division;
+              
+              waitingForDropRef.current = false;
+              setCurrentGrowlName(null);
+          }
+      }
+  }, [currentStep, drumSettings, preset, previousPreset, gateSettings]);
 
-  const handleBigSave = () => {
-    const term = SLANG_TERMS[currentSlangIndex];
-    const newLabel = `${term} (${saveSlotIndex + 1})`;
-    
-    // Update preset description to match label for uniqueness and UI highlighting
-    const uniquePreset = { ...preset, description: newLabel };
 
-    // Create new Patch object with ALL settings EXCEPT Gate (uses default/safe)
-    const newPatch: UserPatch = {
-        label: newLabel,
-        preset: uniquePreset,
-        fxState: { ...fxState },
-        drumSettings: { ...drumSettings },
-        // Per instructions: "remove gate settings from handleBigSave"
-        // We effectively save a 'default' or 'safe' gate state so loading this patch
-        // doesn't force a weird gate config.
-        gateSettings: { enabled: false, pattern: 'TRANCE', division: '1/32', mix: 1.0 },
-        arpSettings: { ...arpSettings },
-        octave: octave
-    };
-
-    // Update Array
-    const newPatches = [...userPatches];
-    newPatches[saveSlotIndex] = newPatch;
-    setUserPatches(newPatches);
-    
-    // Update current preset state to match the saved one (so it highlights in UI)
-    setPreset(uniquePreset);
-
-    // Cycle logic
-    setSaveSlotIndex((prev) => (prev + 1) % 10);
-    setCurrentSlangIndex((prev) => (prev + 1) % SLANG_TERMS.length);
-  };
+  // --- SAVE / LOAD PATCHES ---
+  const handleBigSave = useCallback(() => {
+      const label = `${SLANG_TERMS[currentSlangIndex]} (${saveSlotIndex === 9 ? 0 : saveSlotIndex + 1})`;
+      
+      // Create Patch (Excluding current Gate settings, force default)
+      const patch: UserPatch = {
+          label: label,
+          preset: { ...preset, description: label },
+          fxState: fxState,
+          drumSettings: drumSettings,
+          gateSettings: defaultGate, // Don't save gate state
+          arpSettings: arpSettings,
+          octave: octave
+      };
+      
+      setUserPatches(prev => {
+          const next = [...prev];
+          next[saveSlotIndex] = patch;
+          return next;
+      });
+      
+      // Update UI state
+      setPreset(prev => ({ ...prev, description: label }));
+      
+      // Cycle Indices
+      setCurrentSlangIndex(prev => (prev + 1) % SLANG_TERMS.length);
+      setSaveSlotIndex(prev => (prev + 1) % 10);
+      
+  }, [preset, fxState, drumSettings, arpSettings, octave, saveSlotIndex, currentSlangIndex]);
 
   const handleLoadPatch = useCallback((patch: UserPatch) => {
-      // Capture current state to avoid race conditions
+      // Capture current running states
       const wasDrumming = drumSettings.enabled;
+      const wasGating = gateSettings.enabled;
 
-      // Set History
+      // History
       setPreviousPreset(preset);
       setPreviousFxState(fxState);
       setPreviousDrumSettings(drumSettings);
       setPreviousGateSettings(gateSettings);
 
-      // Restore States
+      // Restore
       setPreset(patch.preset);
       setFxState(patch.fxState);
       
-      // Preserve rhythm running state:
-      // If rhythm is currently ON, keep it ON (ignore patch disabled state).
-      // If rhythm is currently OFF, load patch state (which might start it).
-      const newDrumSettings = {
-          ...patch.drumSettings,
-          enabled: drumSettings.enabled || patch.drumSettings.enabled
-      };
-      setDrumSettings(newDrumSettings);
-
-      // GATE SETTINGS ARE IGNORED ON LOAD
-      // setGateSettings(patch.gateSettings); 
+      // Drums: Force ON if running, else use patch setting
+      const newDrums = { ...patch.drumSettings, enabled: wasDrumming || patch.drumSettings.enabled };
+      setDrumSettings(newDrums);
+      
+      // Gate: IGNORE patch settings completely, keep current gate
+      // (As requested: presets should not store/change gate data)
+      const newGate = gateSettings; 
       
       setArpSettings(patch.arpSettings);
       setOctave(patch.octave);
       
-      // Update Baseline Gate ignored
-      // baselineGateDivision.current = patch.gateSettings.division;
-
-      // Force Engine Update Immediately
       if (audioEngineRef.current) {
           audioEngineRef.current.setParams(patch.preset.audio);
           audioEngineRef.current.setFx(patch.fxState);
-          audioEngineRef.current.setDrumSettings(newDrumSettings);
-          // GATE SETTINGS ARE IGNORED ON LOAD
-          // audioEngineRef.current.setGateSettings(patch.gateSettings);
+          audioEngineRef.current.setDrumSettings(newDrums);
+          // Don't update gate from patch
           audioEngineRef.current.setArpSettings(patch.arpSettings);
           audioEngineRef.current.setOctave(patch.octave);
       }
   }, [preset, fxState, drumSettings, gateSettings, octave]);
 
-  // --- DROP LOGIC: Precise Revert on Target Step ---
-  useEffect(() => {
-    // Only process drop logic if drums are enabled AND we are waiting for a drop
-    if (drumSettings.enabled && waitingForDropRef.current && dropTargetStepRef.current !== null) {
-        // If we hit the target step
-        if (currentStep === dropTargetStepRef.current) {
-            executeRevert();
-        }
-    }
-  }, [currentStep, drumSettings.enabled]);
 
-  // --- QUANTIZED VISUAL EFFECTS ---
-  // Runs on a 32nd note interval based on BPM to rate-limit triggers rhythmically
-  useEffect(() => {
-      if (playState !== PlayState.PLAYING) return;
-
-      const bpm = arpSettings.bpm;
-      const msPerBeat = 60000 / bpm;
-      const msPer32nd = msPerBeat / 8; // 32nd note quantization
-
-      const timer = setInterval(() => {
-          if (pendingVisualEffectRef.current !== null) {
-              // Consume the pending trigger
-              setActiveVisualEffect(pendingVisualEffectRef.current);
-              pendingVisualEffectRef.current = null;
-              
-              // Clear the effect after a 16th note duration (2 * 32nd)
-              setTimeout(() => {
-                  setActiveVisualEffect(null);
-              }, msPer32nd * 2);
+  // --- WEBCAM HANDLER ---
+  const handleZoneTrigger = useCallback((zoneIdx: number, visualEffectIdx?: number) => {
+      // Visual Sync
+      if (typeof visualEffectIdx === 'number') {
+          pendingVisualEffectRef.current = visualEffectIdx;
+      }
+      
+      if (zoneIdx === 0) { // TL: CHOP IT UP
+          handleChop();
+      } else if (zoneIdx === 1) { // TR: GRRRR! (Growl)
+          handleGrowl();
+      } else if (zoneIdx === 2) { // BL: RUN BACK (Undo)
+          // Ensure rhythm stays on if it was on
+          const wasDrumming = drumSettings.enabled;
+          handleRevertPreset();
+          if (wasDrumming) {
+              setDrumSettings(prev => ({...prev, enabled: true}));
+              if(audioEngineRef.current) audioEngineRef.current.setDrumSettings({...drumSettings, enabled: true});
           }
-      }, msPer32nd);
-
-      return () => clearInterval(timer);
-  }, [playState, arpSettings.bpm]);
-
-  const triggerVisualEffect = (effectIdx: number) => {
-      // Queue the effect to be picked up by the quantization loop
-      pendingVisualEffectRef.current = effectIdx;
-  };
-
-  const handlePhysicsUpdate = useCallback((x: number, y: number, speed: number, hardness: number, isClicked: boolean) => {
-    if (audioEngineRef.current && playState === PlayState.PLAYING) {
-      audioEngineRef.current.modulate(x, y, speed, hardness, isClicked);
-    }
-    
-    // Track if sound is effectively being produced (for visual feedback)
-    const isActive = (speed > 0.05 || isClicked) && playState === PlayState.PLAYING;
-    
-    if (isActive !== wasSoundingRef.current) {
-        wasSoundingRef.current = isActive;
-        setIsSounding(isActive);
-    }
-
-    // Trigger visual effects on high intensity mouse interaction
-    if (playState === PlayState.PLAYING) {
-        // Trigger threshold: Fast movement (speed > 50) OR Click with movement (speed > 20)
-        // 5 Visual Effects: 0=Invert, 1=Glitch, 2=Mosaic, 3=Scanlines, 4=Posterize
-        if (speed > 50 || (isClicked && speed > 20)) {
-             const effectIdx = Math.floor(Math.random() * 5);
-             triggerVisualEffect(effectIdx);
-        }
-    }
-
-    // Dynamic Gate Speed based on Screen Y Position
-    if (gateSettings.enabled && (isClicked || speed > 0.05)) {
-        const divisions = GATE_DIVISIONS;
-        const baselineIdx = divisions.indexOf(baselineGateDivision.current);
-        let targetIdx = baselineIdx;
-
-        // Y: 0 is Top, 1 is Bottom
-        if (y < 0) {
-             targetIdx = baselineIdx;
-        } else if (y < 0.33) {
-            // Top Section: Double Speed (Faster = Lower Index)
-            targetIdx = Math.max(0, baselineIdx - 1);
-        } else {
-            // Middle & Bottom Section: Baseline
-            targetIdx = baselineIdx;
-        }
-
-        const targetDiv = divisions[targetIdx];
-        if (targetDiv !== gateSettings.division) {
-             setGateSettings(prev => ({ ...prev, division: targetDiv }));
-        }
-    } else if (gateSettings.enabled && gateSettings.division !== baselineGateDivision.current && !isClicked && speed < 0.05) {
-        // Return to baseline when interaction stops
-        setGateSettings(prev => ({ ...prev, division: baselineGateDivision.current }));
-    }
-
-  }, [playState, gateSettings.enabled, gateSettings.division, activeVisualEffect]);
-
-  const handleToggleRecord = async () => {
-    if (!audioEngineRef.current) return;
-
-    if (isRecording) {
-        const url = await audioEngineRef.current.stopRecording();
-        setIsRecording(false);
-        
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = `oobleck-synth-${Date.now()}.webm`;
-        document.body.appendChild(a);
-        a.click();
-        
-        setTimeout(() => {
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        }, 100);
-    } else {
-        audioEngineRef.current.startRecording();
-        setIsRecording(true);
-    }
-  };
-
-  const handleOctaveChange = (newOctave: number) => {
-      if (newOctave > 2 || newOctave < -2) return;
-      setOctave(newOctave);
-      if (audioEngineRef.current) {
-          audioEngineRef.current.setOctave(newOctave);
+      } else if (zoneIdx === 3) { // BR: CHAOS
+          handleRandomize();
       }
+  }, [handleChop, handleGrowl, handleRevertPreset, handleRandomize, drumSettings]);
+
+  // Handle Manual Gate Change (Update Baseline)
+  const handleManualGateChange = (s: GateSettings) => {
+      setGateSettings(s);
+      baselineGateDivision.current = s.division;
   };
 
-  const handleToggleFx = (key: keyof FxState) => {
-    const newState = { ...fxState, [key]: !fxState[key] };
-    setFxState(newState);
-    if (audioEngineRef.current) {
-      audioEngineRef.current.setFx(newState);
-    }
-  };
-  
-  const handleNotePlay = (freq: number) => {
-      setPreset(prev => ({
-          ...prev,
-          audio: {
-              ...prev.audio,
-              baseFreq: freq
-          }
-      }));
-      
-      if (audioEngineRef.current) {
-          audioEngineRef.current.trigger();
-      }
-  };
-
-  const handlePresetChange = (newPreset: SynthPreset) => {
-    setPreviousPreset(preset);
-    setPreviousFxState(fxState);
-    setPreviousDrumSettings(drumSettings);
-    setPreviousGateSettings(gateSettings);
-    
-    setPreset(prev => ({
-        ...newPreset,
-        audio: {
-            ...newPreset.audio,
-            baseFreq: prev.audio.baseFreq // Keep the pitch the user is currently using
-        }
-    }));
-  };
-
-  const handleScaleFrequenciesChange = (freqs: number[]) => {
-      if (audioEngineRef.current) {
-          audioEngineRef.current.setScaleFrequencies(freqs);
-      }
-  };
-
-  const handleSaveFavorite = () => {
-      // Check duplicates
-      const exists = favorites.some(f => 
-          f.physics.name === preset.physics.name && 
-          f.description === preset.description
-      );
-      
-      let newFavs;
-      if (exists) {
-          newFavs = favorites.filter(f => 
-             !(f.physics.name === preset.physics.name && f.description === preset.description)
-          );
-      } else {
-          newFavs = [...favorites, preset];
-      }
-      
-      setFavorites(newFavs);
-      localStorage.setItem('oobleck_favorites', JSON.stringify(newFavs));
-  };
-
-  const handleDeleteFavorite = (index: number) => {
-      const newFavs = favorites.filter((_, i) => i !== index);
-      setFavorites(newFavs);
-      localStorage.setItem('oobleck_favorites', JSON.stringify(newFavs));
-  };
-
-  const getAudioData = useCallback(() => {
-      return audioEngineRef.current?.getAudioData() ?? null;
-  }, []);
-
-  const handleRandomize = () => {
-    // 1. Random Preset
-    const randomPreset = ALL_PRESETS[Math.floor(Math.random() * ALL_PRESETS.length)];
-    
-    // Randomize Visuals for chaos
-    const shapes: VisualShape[] = ['circle', 'square', 'triangle', 'hexagon', 'cross', 'star'];
-    const cams: CameraMode[] = ['static', 'sway', 'drift', 'pulse', 'shake', 'spin', 'zoom'];
-    const styles: RenderStyle[] = ['particles', 'wireframe', 'mosaic', 'scanner'];
-    
-    const chaosPreset: SynthPreset = {
-        ...randomPreset,
-        audio: {
-            ...randomPreset.audio,
-            sustain: 1.0, // Force Sustain to 100% per user request
-        },
-        visual: {
-            shape: shapes[Math.floor(Math.random() * shapes.length)],
-            cameraMode: cams[Math.floor(Math.random() * cams.length)],
-            renderStyle: styles[Math.floor(Math.random() * styles.length)],
-            connectPoints: Math.random() > 0.5,
-            strokeWidth: Math.random() * 4,
-            trailLength: 0.1 + Math.random() * 0.4,
-            glowIntensity: Math.random()
-        }
-    };
-    
-    handlePresetChange(chaosPreset);
-
-    // 2. Gate: 1/32 TRANCE (Default Random, will be overridden by zone logic if called from there)
-    baselineGateDivision.current = '1/32'; // Update baseline
-    setGateSettings({
-        enabled: true,
-        pattern: 'TRANCE',
-        division: '1/32',
-        mix: 1.0
-    });
-
-    // 3. Random FX On/Off
-    setFxState({
-        delay: Math.random() > 0.5,
-        chorus: Math.random() > 0.5,
-        highpass: Math.random() > 0.5,
-        distortion: Math.random() > 0.5,
-        phaser: Math.random() > 0.5,
-        reverb: Math.random() > 0.5,
-        crunch: Math.random() > 0.5
-    });
-
-    // 4. Start Sampler
-    setDrumSettings(prev => ({
-        ...prev,
-        enabled: true
-    }));
-
-    // Ensure engine is playing
-    if (playState === PlayState.IDLE) {
-        setPlayState(PlayState.PLAYING);
-    }
-  };
-
-  // Zone 0: TopLeft, Zone 1: TopRight, Zone 2: BotLeft, Zone 3: BotRight
-  const handleZoneTrigger = (zoneIndex: number, visualEffectIndex?: number) => {
-      // Sync visual effect to main canvas using centralized trigger (Queued)
-      if (typeof visualEffectIndex === 'number') {
-          triggerVisualEffect(visualEffectIndex);
-      }
-
-      switch (zoneIndex) {
-          case 0: // Top Left: CHOP IT UP (Gate 1/64 ON)
-              handleChop();
-              break;
-          case 1: // Top Right: GROWL (ALT Behavior)
-              handleGrowl();
-              break;
-          case 2: // Bottom Left: RUN BACK (ESC Behavior)
-              // IMPORTANT: Capture if drums are currently running before reverting
-              const drumsWereRunning = drumSettings.enabled;
-              
-              handleRevertPreset();
-              
-              // If drums were running, ensure they stay running even if the "previous" state
-              // had them disabled. This prevents visual zones from killing the rhythm.
-              if (drumsWereRunning) {
-                  setDrumSettings(prev => ({ ...prev, enabled: true }));
-              }
-              break;
-          case 3: // Bottom Right: Chaos Mode + Gate 1/32 ON (Doubled from 1/16)
-              handleRandomize();
-              setTimeout(() => {
-                  baselineGateDivision.current = '1/32';
-                  setGateSettings(prev => ({
-                      ...prev,
-                      enabled: true,
-                      division: '1/32'
-                  }));
-              }, 0);
-              break;
-      }
-  };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black selection:bg-teal-500/30">
-      
+    <div className="relative w-full h-screen overflow-hidden bg-black text-white selection:bg-teal-500/30">
       <FluidCanvas 
-        key={1} // Force remount if needed
+        key={1} // Force fresh canvas
         physics={preset.physics} 
         visual={preset.visual}
         onUpdate={handlePhysicsUpdate}
         isPlaying={playState === PlayState.PLAYING}
-        getAudioData={getAudioData}
+        getAudioData={() => audioEngineRef.current?.getAudioData() || null}
         inputRef={inputRef}
         activeEffect={activeVisualEffect}
       />
@@ -825,62 +570,83 @@ const App: React.FC = () => {
 
       <UIOverlay 
         currentPreset={preset}
-        onPresetChange={handlePresetChange}
+        onPresetChange={setPreset}
         onRevertPreset={handleRevertPreset}
         playState={playState}
         setPlayState={setPlayState}
         onGenerateStart={() => {}}
         isRecording={isRecording}
-        onToggleRecord={handleToggleRecord}
+        onToggleRecord={() => {
+            if(isRecording) {
+                audioEngineRef.current?.stopRecording().then(url => {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `oobleck-session-${Date.now()}.webm`;
+                    a.click();
+                    setIsRecording(false);
+                });
+            } else {
+                audioEngineRef.current?.startRecording();
+                setIsRecording(true);
+            }
+        }}
         octave={octave}
-        onOctaveChange={handleOctaveChange}
+        onOctaveChange={setOctave}
         fxState={fxState}
-        onToggleFx={handleToggleFx}
-        onNotePlay={handleNotePlay}
-        
+        onToggleFx={(k) => setFxState(prev => ({ ...prev, [k]: !prev[k] }))}
+        onNotePlay={(f) => {
+            if(audioEngineRef.current) {
+                audioEngineRef.current.setParams({...preset.audio, baseFreq: f});
+                audioEngineRef.current.trigger();
+            }
+        }}
         arpSettings={arpSettings}
         onArpChange={setArpSettings}
-        onScaleFrequenciesChange={handleScaleFrequenciesChange}
-        
+        onScaleFrequenciesChange={(freqs) => audioEngineRef.current?.setScaleFrequencies(freqs)}
         drumSettings={drumSettings}
-        onDrumChange={handleDrumChange}
+        onDrumChange={setDrumSettings}
         currentStep={currentStep}
-
         gateSettings={gateSettings}
         onGateChange={handleManualGateChange}
-        
         synthVolume={synthVolume}
         onSynthVolumeChange={setSynthVolume}
-
         favorites={favorites}
-        onSaveFavorite={handleSaveFavorite}
-        onDeleteFavorite={handleDeleteFavorite}
-
+        onSaveFavorite={() => {
+            const newFavs = [...favorites, preset];
+            setFavorites(newFavs);
+            localStorage.setItem('oobleck_favorites', JSON.stringify(newFavs));
+        }}
+        onDeleteFavorite={(i) => {
+            const newFavs = favorites.filter((_, idx) => idx !== i);
+            setFavorites(newFavs);
+            localStorage.setItem('oobleck_favorites', JSON.stringify(newFavs));
+        }}
         isCameraActive={isCameraActive}
         onToggleCamera={() => setIsCameraActive(!isCameraActive)}
-        
         isSounding={isSounding}
-        
         onRandomize={handleRandomize}
         crossFader={crossFader}
-        onCrossFaderChange={setCrossFader}
-
+        onCrossFaderChange={(v) => {
+            setCrossFader(v);
+            // Engine update logic if needed for crossfader specifically
+            // (Currently AudioEngine handles volumes directly via settings, 
+            // but if crossfader logic was inside engine, we'd pass it here)
+            // For now, we update volumes:
+            if(audioEngineRef.current) {
+                audioEngineRef.current.setDrumSettings({...drumSettings, volume: 1.0 - v}); // Simple mix
+                audioEngineRef.current.setSynthVolume(v * 0.3); // Scale synth max
+            }
+        }}
         onGrowl={handleGrowl}
         currentGrowlName={currentGrowlName}
-
         onChop={handleChop}
-
-        // Updated Props for Dynamic Patches
+        
         userPatches={userPatches}
         onLoadPatch={handleLoadPatch}
         onBigSave={handleBigSave}
         saveButtonText={SLANG_TERMS[currentSlangIndex]}
         nextSaveSlotIndex={saveSlotIndex}
       />
-      
-      <div className="md:hidden fixed bottom-0 w-full bg-yellow-500/10 text-yellow-200 text-[10px] p-1 text-center backdrop-blur-sm z-50 pointer-events-none">
-        Best experienced on desktop.
-      </div>
     </div>
   );
 };
