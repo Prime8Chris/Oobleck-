@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch } from '../types';
 import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS } from '../constants';
-import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, ActivitySquare, Waves as WavesIcon, Triangle, BoxSelect, Save } from 'lucide-react';
+import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, ActivitySquare, Waves as WavesIcon, Triangle, BoxSelect, Save, Lock, Unlock } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
 interface Props {
@@ -53,11 +53,15 @@ interface Props {
   onChop: () => void;
 
   // Dynamic Preset Props
-  userPatches: UserPatch[]; // Updated
-  onLoadPatch: (p: UserPatch) => void; // Updated
+  userPatches: (UserPatch | null)[];
+  onLoadPatch: (p: UserPatch) => void;
   onBigSave: () => void;
   saveButtonText: string;
   nextSaveSlotIndex: number;
+
+  // Chaos Lock
+  isChaosLocked: boolean;
+  onToggleChaosLock: () => void;
 }
 
 const FxButton = ({ label, active, onClick, icon: Icon, color }: { label: string, active: boolean, onClick: () => void, icon: any, color: string }) => {
@@ -124,7 +128,7 @@ const VolumeSlider = ({ value, onChange, vertical = false }: { value: number, on
   </div>
 );
 
-// Neon Thumbs Up SVG for Big Save Button
+// Neon Thumbs Up SVG
 const NeonThumbsUp = ({ className }: { className?: string }) => (
     <svg viewBox="0 0 200 200" className={className} overflow="visible">
         <defs>
@@ -168,7 +172,55 @@ const NeonThumbsUp = ({ className }: { className?: string }) => (
     </svg>
 );
 
-// Vibrant OOBLECK Logo SVG (Enhanced Cell-Shaded Version)
+// Neon Lock SVG
+const NeonLock = ({ className, isLocked }: { className?: string, isLocked: boolean }) => (
+    <svg viewBox="0 0 200 200" className={`${className} pointer-events-none`} overflow="visible">
+        <defs>
+            <linearGradient id="neonLockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#f472b6" /> {/* Pink */}
+                <stop offset="50%" stopColor="#a855f7" /> {/* Purple */}
+                <stop offset="100%" stopColor="#3b82f6" /> {/* Blue */}
+            </linearGradient>
+            <linearGradient id="neonShackleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#22d3ee" />
+                <stop offset="100%" stopColor="#06b6d4" />
+            </linearGradient>
+            <filter id="neonLockGlow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+        </defs>
+        
+        {/* Shackle */}
+        <path 
+            d="M60,90 V50 A40,40 0 0 1 140,50 V90"
+            fill="none"
+            stroke="url(#neonShackleGrad)"
+            strokeWidth="12"
+            strokeLinecap="round"
+            filter="url(#neonLockGlow)"
+            className={`transition-all duration-300 ${isLocked ? 'translate-y-0' : '-translate-y-12'}`}
+        />
+
+        {/* Lock Body */}
+        <rect 
+            x="40" y="90" width="120" height="100" rx="15"
+            fill="#1e1b4b"
+            stroke="url(#neonLockGrad)"
+            strokeWidth="8"
+            filter="url(#neonLockGlow)"
+        />
+        
+        {/* Keyhole */}
+        <circle cx="100" cy="130" r="12" fill="url(#neonShackleGrad)" filter="url(#neonLockGlow)" />
+        <path d="M100,130 L85,170 H115 Z" fill="url(#neonShackleGrad)" filter="url(#neonLockGlow)" />
+    </svg>
+);
+
+// Vibrant OOBLECK Logo SVG
 const OobleckLogo = ({ onClick }: { onClick: () => void }) => (
   <div 
     className="cursor-pointer relative group w-64 h-64 select-none z-20" 
@@ -201,57 +253,35 @@ const OobleckLogo = ({ onClick }: { onClick: () => void }) => (
          </filter>
        </defs>
        
-       {/* Background Splatters (Cell Shaded Depth) */}
        <path d="M160,10 Q250,-20 280,60 Q310,140 230,200 Q150,250 60,190 Q-10,130 30,50 Q70,-20 160,10 Z" 
              fill="#3b0764" stroke="black" strokeWidth="12" />
-             
        <path d="M150,20 Q230,-10 260,60 Q290,130 220,180 Q150,230 80,180 Q10,130 40,60 Q70,-10 150,20 Z" 
              fill="url(#slimeGrad)" stroke="black" strokeWidth="6" />
-             
-       {/* Inner Highlights */}
        <path d="M100,50 Q150,40 200,60 Q230,100 200,140 Q150,160 100,140 Q70,100 100,50 Z" 
              fill="#bef264" opacity="0.4" filter="url(#displacement)" />
-
-       {/* Typography Layer */}
        <g transform="translate(150,115) rotate(-5)">
-          {/* Deep Shadow */}
           <text x="8" y="8" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
                 fill="#1e1b4b" stroke="#1e1b4b" strokeWidth="24" letterSpacing="-4" opacity="0.8">OOBLECK</text>
-          
-          {/* Thick Outline */}
           <text x="0" y="0" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
                 fill="black" stroke="black" strokeWidth="22" letterSpacing="-4">OOBLECK</text>
-          
-          {/* Main Gradient Text */}
           <text x="0" y="0" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
                 fill="url(#textGrad)" stroke="white" strokeWidth="3" letterSpacing="-4" paintOrder="stroke">OOBLECK</text>
-          
-          {/* Wet Highlight on Text */}
           <path d="M-130,-35 Q-60,-55 0,-45 T130,-35" stroke="white" strokeWidth="6" fill="none" opacity="0.6" strokeLinecap="round" />
        </g>
-
-       {/* Dynamic Drips */}
        <path d="M80,175 Q85,200 80,225" stroke="#4ade80" strokeWidth="10" fill="none" strokeLinecap="round" />
        <circle cx="80" cy="235" r="6" fill="#4ade80" />
-       
        <path d="M220,165 Q215,190 220,215" stroke="#4ade80" strokeWidth="8" fill="none" strokeLinecap="round" />
-
-       {/* Electric Zaps */}
        <path d="M260,30 L285,10 L275,50 L295,30" stroke="#fef08a" strokeWidth="4" fill="none" filter="url(#neonGlow)">
           <animate attributeName="opacity" values="0;1;0" dur="0.4s" repeatCount="indefinite" />
        </path>
        <path d="M20,160 L5,190 L35,180" stroke="#fef08a" strokeWidth="4" fill="none" filter="url(#neonGlow)">
           <animate attributeName="opacity" values="0;1;0" dur="0.6s" repeatCount="indefinite" />
        </path>
-
-       {/* Tech Banner */}
        <g transform="translate(150,175) rotate(2)">
            <path d="M-115,-14 L115,-14 L105,14 L-125,14 Z" fill="black" stroke="#2dd4bf" strokeWidth="2" />
            <text x="0" y="5" textAnchor="middle" fontSize="11" fontFamily="monospace" fontWeight="bold" fill="#2dd4bf" letterSpacing="2">FLUID SYNTHESIZER</text>
        </g>
-
     </svg>
-    
     <div className="absolute inset-0 rounded-full bg-green-500/20 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
   </div>
 );
@@ -264,24 +294,18 @@ const FlyingThumbImpl = ({sx, sy, tx, ty, onComplete}: {sx: number, sy: number, 
     });
 
     useEffect(() => {
-        // Trigger animation next frame
         requestAnimationFrame(() => {
             setStyle({
                 transform: `translate(${tx}px, ${ty}px) scale(0.2)`,
                 opacity: 0
             });
         });
-        
-        const t = setTimeout(onComplete, 500); // Matches duration
+        const t = setTimeout(onComplete, 500); 
         return () => clearTimeout(t);
     }, []);
 
     return (
-        <div 
-            className="fixed top-0 left-0 transition-all duration-500 ease-in-out pointer-events-none z-[100]" 
-            style={style}
-        >
-             {/* Offset to center the 64x64 icon on the coordinate point */}
+        <div className="fixed top-0 left-0 transition-all duration-500 ease-in-out pointer-events-none z-[100]" style={style}>
             <div style={{ transform: 'translate(-50%, -50%)' }}>
                 <NeonThumbsUp className="w-16 h-16" />
             </div>
@@ -300,7 +324,7 @@ const UIOverlay: React.FC<Props> = ({
   crossFader, onCrossFaderChange, onRevertPreset,
   onGrowl, currentGrowlName, onChop,
   userPatches, onLoadPatch, onBigSave, saveButtonText,
-  nextSaveSlotIndex
+  nextSaveSlotIndex, isChaosLocked, onToggleChaosLock
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [hasRandomized, setHasRandomized] = useState(false);
@@ -312,7 +336,6 @@ const UIOverlay: React.FC<Props> = ({
   const [isAltPressed, setIsAltPressed] = useState(false);
   const [isEscPressed, setIsEscPressed] = useState(false);
   
-  // Animation Refs & State
   const saveBtnRef = useRef<HTMLButtonElement>(null);
   const presetBtnRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [flyingThumb, setFlyingThumb] = useState<{sx:number, sy:number, tx:number, ty:number, id:number} | null>(null);
@@ -320,9 +343,7 @@ const UIOverlay: React.FC<Props> = ({
   const handleBigSaveClick = () => {
     if (saveBtnRef.current) {
         const sRect = saveBtnRef.current.getBoundingClientRect();
-        // Target is the button for the NEXT save slot (passed from App)
         const tRect = presetBtnRefs.current[nextSaveSlotIndex]?.getBoundingClientRect();
-        
         if (tRect) {
              setFlyingThumb({
                  sx: sRect.left + sRect.width / 2,
@@ -336,13 +357,11 @@ const UIOverlay: React.FC<Props> = ({
     onBigSave();
   };
 
-  // Keyboard mapping
   const NOTE_MAP: Record<string, number> = {
     'z': 0, 's': 1, 'x': 2, 'd': 3, 'c': 4, 'v': 5, 'g': 6, 'b': 7, 'h': 8, 'n': 9, 'j': 10, 'm': 11,
     ',': 12, 'l': 13, '.': 14, ';': 15, '/': 16
   };
   
-  // Scale definitions
   const SCALES = {
       'Chromatic': [0,1,2,3,4,5,6,7,8,9,10,11],
       'Major': [0,2,4,5,7,9,11],
@@ -350,20 +369,15 @@ const UIOverlay: React.FC<Props> = ({
       'Pentatonic': [0,3,5,7,10]
   };
   const [selectedScale, setSelectedScale] = useState<keyof typeof SCALES>('Chromatic');
-  const [rootNote, setRootNote] = useState(0); // 0 = C
+  const [rootNote, setRootNote] = useState(0); 
 
   useEffect(() => {
-      // Calculate frequencies for the current scale
-      const baseFreq = 65.41; // C2 (Shifted down from C3 130.81)
+      const baseFreq = 65.41; 
       const freqs = [];
-      // 4 Octaves = 48 keys
       for(let i=0; i<48; i++) { 
           const octave = Math.floor(i / 12);
           const noteIndex = i % 12;
-          
-          // Check if note is in scale
           const interval = (noteIndex - rootNote + 12) % 12;
-          
           if (SCALES[selectedScale].includes(interval)) {
                freqs.push(baseFreq * Math.pow(2, (i - 9)/12)); 
           }
@@ -373,14 +387,8 @@ const UIOverlay: React.FC<Props> = ({
 
   const quantizeNote = (rawIndex: number) => {
       const scaleIntervals = SCALES[selectedScale];
-      let minDist = 12;
-      let bestIndex = rawIndex;
-      
       const rawNoteClass = (rawIndex - rootNote + 12) % 12;
-      
       if (scaleIntervals.includes(rawNoteClass)) return rawIndex;
-
-      // Find nearest
       for(let d=1; d<6; d++) {
           if (scaleIntervals.includes((rawNoteClass + d)%12)) return rawIndex + d;
           if (scaleIntervals.includes((rawNoteClass - d + 12)%12)) return rawIndex - d;
@@ -389,13 +397,16 @@ const UIOverlay: React.FC<Props> = ({
   };
 
   const handleKeyDown = useCallback((e: any) => {
-    // Only trigger if not typing in an input
     if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
     if (e.repeat) return;
     
-    // Spacebar Randomize
     if (e.code === 'Space') {
         e.preventDefault();
+        // UNLOCK if locked
+        if (isChaosLocked) {
+            onToggleChaosLock();
+            return;
+        }
         setIsSpacePressed(true);
         onRandomize();
         setHasRandomized(true);
@@ -410,15 +421,13 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // Growl Shortcut (Alt)
     if (e.key === 'Alt') {
-        e.preventDefault(); // Prevent browser menu focus
+        e.preventDefault();
         setIsAltPressed(true);
         onGrowl();
         return;
     }
 
-    // Enter: Initialize if IDLE, Toggle Rhythm if PLAYING
     if (e.key === 'Enter') {
         if (playState === PlayState.IDLE) {
             setPlayState(PlayState.PLAYING);
@@ -428,15 +437,11 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // Camera Toggle
     if (e.key === '\\') {
         onToggleCamera();
         return;
     }
 
-    // --- Performance Shortcuts ---
-
-    // Arrows: Mixing & Pitch
     if (e.key === 'ArrowUp') {
         e.preventDefault();
         onOctaveChange(Math.min(octave + 1, 2));
@@ -458,7 +463,6 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // Brackets: Volume
     if (e.key === '[') {
         onSynthVolumeChange(Math.max(0, synthVolume - 0.05));
         return;
@@ -468,7 +472,6 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // QWERTY Row 1: Gate Speed (Left Hand)
     const gateMap: Record<string, GateDivision> = {
         'q': '1/64', 'w': '1/32', 'e': '1/16', 'r': '1/8', 't': '1/4'
     };
@@ -477,7 +480,6 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // QWERTY Row 1: Module Toggles (Right Hand)
     if (e.key.toLowerCase() === 'u') {
         onArpChange({ ...arpSettings, enabled: !arpSettings.enabled });
         return;
@@ -495,7 +497,6 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // Presets 1-0 (Using UserPatches now)
     const key = e.key;
     const PRESET_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
     const pIdx = PRESET_KEYS.indexOf(key);
@@ -507,15 +508,14 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
 
-    // Musical Typing
     if (NOTE_MAP.hasOwnProperty(key)) {
       const semitone = NOTE_MAP[key];
       const quantized = quantizeNote(semitone);
-      const freq = 65.41 * Math.pow(2, quantized / 12); // C2
+      const freq = 65.41 * Math.pow(2, quantized / 12);
       onNotePlay(freq);
       setActiveMouseNote(semitone);
     }
-  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl, userPatches, onLoadPatch]);
+  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl, userPatches, onLoadPatch, isChaosLocked, onToggleChaosLock]);
 
   const handleKeyUp = useCallback((e: any) => {
       if (e.code === 'Space') setIsSpacePressed(false);
@@ -546,12 +546,10 @@ const UIOverlay: React.FC<Props> = ({
       }
   };
 
-  // 48 Key Generation (4 Octaves)
   const totalKeys = 48;
   const allKeys = Array.from({ length: totalKeys }, (_, i) => i);
   const whiteKeys = allKeys.filter(i => [0, 2, 4, 5, 7, 9, 11].includes(i % 12));
   const blackKeys = allKeys.filter(i => [1, 3, 6, 8, 10].includes(i % 12));
-  
   const numWhiteKeys = whiteKeys.length;
 
   return (
@@ -578,16 +576,10 @@ const UIOverlay: React.FC<Props> = ({
         }
       `}</style>
 
-      {/* FLYING THUMB ANIMATION LAYER */}
       {flyingThumb && (
-          <FlyingThumbImpl 
-             key={flyingThumb.id} 
-             {...flyingThumb} 
-             onComplete={() => setFlyingThumb(null)} 
-          />
+          <FlyingThumbImpl key={flyingThumb.id} {...flyingThumb} onComplete={() => setFlyingThumb(null)} />
       )}
 
-      {/* Growl Notification - Highest Priority Alert (z-[60]) */}
       {currentGrowlName && (
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60]">
             <div className="bg-yellow-400 text-black font-black text-4xl px-8 py-4 -skew-x-12 border-4 border-black shadow-[8px_8px_0px_black] uppercase tracking-tighter animate-[wiggle_0.2s_ease-in-out_infinite]">
@@ -596,12 +588,9 @@ const UIOverlay: React.FC<Props> = ({
         </div>
       )}
 
-      {/* CENTRAL CONTROL GRID (Replacing Floating Buttons) */}
       {playState === PlayState.PLAYING && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-auto w-[500px] h-[300px]">
             <div className="grid grid-cols-2 grid-rows-2 gap-2 w-full h-full">
-                
-                {/* TOP LEFT: CHOP IT UP (Gate 1/64) */}
                 <button
                     onClick={onChop}
                     className={`
@@ -620,7 +609,6 @@ const UIOverlay: React.FC<Props> = ({
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(CLICK)</span>
                 </button>
 
-                {/* TOP RIGHT: GRRRR! (Growl) */}
                 <button
                     onClick={onGrowl}
                     className={`
@@ -639,7 +627,6 @@ const UIOverlay: React.FC<Props> = ({
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ALT)</span>
                 </button>
 
-                {/* BOTTOM LEFT: RUN BACK (Undo/ESC) */}
                 <button
                     onClick={() => { onRevertPreset(); setHasReverted(true); }}
                     className={`
@@ -658,35 +645,34 @@ const UIOverlay: React.FC<Props> = ({
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ESC)</span>
                 </button>
 
-                {/* BOTTOM RIGHT: CHAOS (Random) */}
                 <button
-                    onClick={() => { onRandomize(); setHasRandomized(true); }}
+                    onClick={() => { if(!isChaosLocked) { onRandomize(); setHasRandomized(true); } }}
+                    disabled={isChaosLocked}
                     className={`
                         group relative flex flex-col items-center justify-center
-                        bg-gradient-to-r from-red-500 via-purple-500 to-blue-600
                         rounded-2xl border-4 border-black
                         transition-all duration-150
-                        hover:opacity-75 hover:scale-[1.02]
-                        active:opacity-100 active:scale-95 active:shadow-none
                         shadow-[6px_6px_0px_#000]
-                        ${isSpacePressed ? 'opacity-100 scale-[1.02]' : 'opacity-50'}
+                        ${isChaosLocked 
+                            ? 'bg-zinc-800 cursor-not-allowed border-zinc-600 opacity-50'
+                            : `bg-gradient-to-r from-red-500 via-purple-500 to-blue-600 hover:opacity-75 hover:scale-[1.02] active:opacity-100 active:scale-95 active:shadow-none ${isSpacePressed ? 'opacity-100 scale-[1.02]' : 'opacity-50'}`
+                        }
                     `}
                 >
-                    <Wand2 className="w-10 h-10 mb-2 animate-spin text-white drop-shadow-md" strokeWidth={3} />
-                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">CHAOS</span>
+                    {isChaosLocked ? <Lock className="w-10 h-10 mb-2 text-zinc-500" /> : <Wand2 className="w-10 h-10 mb-2 animate-spin text-white drop-shadow-md" strokeWidth={3} />}
+                    <span className={`font-black text-2xl italic tracking-tighter drop-shadow-md ${isChaosLocked ? 'text-zinc-500' : 'text-white'}`}>
+                        {isChaosLocked ? 'LOCKED' : 'CHAOS'}
+                    </span>
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(SPACE)</span>
                 </button>
-
             </div>
         </div>
       )}
 
-      {/* HEADER */}
       <div className="flex justify-between items-start pointer-events-auto">
         <div className="flex flex-col gap-4 relative ml-[15px]">
-          <OobleckLogo onClick={() => { onRandomize(); setHasRandomized(true); }} />
+          <OobleckLogo onClick={() => { if(!isChaosLocked) { onRandomize(); setHasRandomized(true); } }} />
 
-          {/* Logo Call to Action Arrow */}
           {!hasRandomized && (
             <div className="absolute top-40 -right-4 flex items-center gap-2 animate-pulse pointer-events-none">
                 <div className="text-teal-400 font-handwriting text-xl -rotate-12 font-bold whitespace-nowrap">CLICK ME</div>
@@ -694,10 +680,8 @@ const UIOverlay: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Camera Preview Placeholder (Position handled by WebcamMotion component) */}
           <div className="w-64 h-48"></div> 
 
-          {/* Camera Button (Moved below camera preview) */}
           <div className="relative w-64 flex justify-center -mt-2">
               <button 
                   onClick={onToggleCamera}
@@ -707,8 +691,10 @@ const UIOverlay: React.FC<Props> = ({
                       active:opacity-100 active:scale-95 active:shadow-none
                       hover:scale-[1.02]
                       ${isCameraActive 
-                          ? 'bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white animate-pulse opacity-100 scale-[1.02]' 
-                          : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-teal-400 text-black opacity-50 hover:opacity-75'}
+                          ? 'bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white animate-pulse opacity-50 hover:opacity-75 active:opacity-100 scale-[1.02] shadow-[0_0_15px_rgba(236,72,153,0.6)]' 
+                          : `bg-gradient-to-r from-cyan-400 via-blue-500 to-teal-400 text-black opacity-50 hover:opacity-75
+                             ${isSounding ? 'animate-[splat-dance_0.2s_ease-in-out_infinite]' : 'animate-[splat-dance_3s_ease-in-out_infinite]'}`
+                      }
                   `}
               >
                   <Camera size={18} className={isCameraActive ? "animate-spin" : "group-hover:rotate-12 transition-transform"} />
@@ -724,8 +710,20 @@ const UIOverlay: React.FC<Props> = ({
           </div>
         </div>
         
-        {/* BIG SAVE BUTTON - Top Center (Neon Paint Splatter Style) */}
-        <div className="absolute left-1/2 -translate-x-1/2 top-4 pointer-events-auto z-20">
+        {/* CENTER BUTTONS: LOCK & SAVE */}
+        <div className="absolute left-1/2 -translate-x-1/2 top-4 pointer-events-auto z-20 flex items-center gap-4">
+            {/* CHAOS LOCK BUTTON */}
+            <button
+                onClick={onToggleChaosLock}
+                className="relative group w-28 h-20 flex items-center justify-center focus:outline-none transition-transform active:scale-95 translate-y-[18px] z-50"
+            >
+                <NeonLock 
+                    isLocked={isChaosLocked}
+                    className={`absolute inset-0 w-full h-full drop-shadow-[0_0_20px_rgba(168,85,247,0.5)] ${isSounding ? 'animate-[splat-dance_0.2s_ease-in-out_infinite]' : 'animate-[splat-dance_3s_ease-in-out_infinite]'}`}
+                />
+            </button>
+
+            {/* BIG SAVE BUTTON */}
             <button
                 ref={saveBtnRef}
                 onClick={handleBigSaveClick}
@@ -734,8 +732,6 @@ const UIOverlay: React.FC<Props> = ({
                 <NeonThumbsUp 
                     className={`absolute inset-0 w-full h-full drop-shadow-[0_0_20px_rgba(217,70,239,0.5)] ${isSounding ? 'animate-[splat-dance_0.2s_ease-in-out_infinite]' : 'animate-[splat-dance_3s_ease-in-out_infinite]'}`} 
                 />
-                
-                {/* Rotating, Pulsating Text */}
                 <span 
                     className={`
                         relative z-10 font-black text-2xl italic tracking-tighter text-white drop-shadow-[0_2px_0_rgba(0,0,0,0.8)] translate-y-[40px]
@@ -747,7 +743,6 @@ const UIOverlay: React.FC<Props> = ({
             </button>
         </div>
 
-        {/* TOP RIGHT CONTROLS */}
         <div className="flex flex-col items-end gap-2">
             <div className="flex items-center gap-2 mb-2">
                 <button 
@@ -771,11 +766,22 @@ const UIOverlay: React.FC<Props> = ({
                 </button>
             </div>
 
-            {/* PRESETS ROW - DYNAMIC COLOR & WIDTH */}
             <div className="flex gap-1 bg-black/60 backdrop-blur p-1 rounded-xl border border-white/10 flex-wrap justify-end max-w-[400px]">
                 {userPatches.map((p, idx) => {
+                    if (!p) {
+                        return (
+                            <button
+                                key={idx}
+                                ref={(el) => (presetBtnRefs.current[idx] = el)}
+                                className="w-6 h-6 rounded border border-white/10 bg-white/5 flex items-center justify-center text-[9px] font-bold text-zinc-700 cursor-default"
+                            >
+                                {idx === 9 ? '0' : idx + 1}
+                            </button>
+                        );
+                    }
+
                     const isCurrent = currentPreset.description === p.preset.description;
-                    const color = p.preset.physics.colorBase || '#14b8a6'; // fallback teal
+                    const color = p.preset.physics.colorBase || '#14b8a6'; 
                     
                     return (
                     <button
@@ -801,7 +807,6 @@ const UIOverlay: React.FC<Props> = ({
                 )})}
             </div>
             
-            {/* Favorites List (Mini) */}
             {favorites.length > 0 && (
                 <div className="mt-2 bg-black/60 backdrop-blur rounded-xl border border-white/10 p-2 max-h-32 overflow-y-auto w-48">
                     <div className="text-[9px] text-gray-500 uppercase font-bold mb-1 px-1">Favorites</div>
@@ -816,7 +821,6 @@ const UIOverlay: React.FC<Props> = ({
                 </div>
             )}
 
-            {/* MAIN FX RACK - Sidebar (Updated to Vertical Stack) */}
             <div className="bg-black/60 backdrop-blur rounded-xl border border-white/10 p-2 mt-2 flex flex-col gap-1 w-[100px]">
                 <FxButton label="Delay" active={fxState.delay} onClick={() => onToggleFx('delay')} icon={Waves} color="cyan" />
                 <FxButton label="Reverb" active={fxState.reverb} onClick={() => onToggleFx('reverb')} icon={Church} color="violet" />
@@ -829,10 +833,7 @@ const UIOverlay: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* FOOTER CONTROLS - COMBINED MASTER CARD */}
       <div className="flex flex-col items-center justify-end pointer-events-auto">
-        
-        {/* Playback Control (Hidden mostly as it's auto-play, but good for restart) */}
         {playState === PlayState.IDLE && (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
                 <button 
@@ -845,24 +846,18 @@ const UIOverlay: React.FC<Props> = ({
             </div>
         )}
 
-        {/* UNIFIED SYNTH DASHBOARD - 80s Boombox Style */}
         <div className="w-[98%] max-w-none mx-auto bg-zinc-900 border-4 border-zinc-700 rounded-t-lg shadow-2xl overflow-hidden backdrop-blur-xl relative translate-y-[10px]">
-          
-          {/* Decorative Texture/Stripes */}
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 via-yellow-500 to-teal-500 opacity-80" />
           <div className="absolute top-1 left-0 w-full h-0.5 bg-black/50" />
 
-          {/* Top Control Deck - Responsive 12-Column Grid */}
           <div className="grid grid-cols-12 divide-x-2 divide-zinc-800 bg-zinc-900 h-40">
             
-            {/* MODULE 1: CORE (AI + Physics) - 2 Cols (Growl Removed) */}
             <div className="col-span-2 p-2 flex flex-col justify-between">
                 <div className="flex items-center gap-2 text-purple-400 mb-1 border-b border-zinc-800 pb-1">
                     <Cpu size={12} />
                     <span className="text-[9px] font-black uppercase tracking-widest font-mono">CORE</span>
                 </div>
                 
-                {/* AI */}
                 <div className="flex gap-1 mb-2">
                     <input
                         className="w-full bg-black/50 border border-zinc-700 rounded-sm px-1 text-[8px] text-white placeholder-zinc-600 h-6 focus:outline-none focus:border-purple-500"
@@ -880,7 +875,6 @@ const UIOverlay: React.FC<Props> = ({
                     </button>
                 </div>
 
-                {/* Physics */}
                 <div className="space-y-1.5">
                     <div className="flex justify-between text-[7px] text-zinc-500 font-bold uppercase">
                         <span>MAT</span>
@@ -897,7 +891,6 @@ const UIOverlay: React.FC<Props> = ({
                 </div>
             </div>
 
-            {/* MODULE 2: RHYTHM (Sampler) - 4 Cols */}
             <div className="col-span-4 p-2 flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
                      <div className="flex items-center gap-1.5 text-pink-400">
@@ -913,7 +906,6 @@ const UIOverlay: React.FC<Props> = ({
                  </div>
                  
                  <div className="flex flex-col h-full pt-1 gap-1">
-                     {/* Genre Grid */}
                      <div className="grid grid-cols-4 gap-0.5">
                          {['HIPHOP', 'DISCO', 'HOUSE', 'DUBSTEP', 'METAL', 'FUNK', 'ROCK', 'BOOMBAP'].map((g) => (
                              <button
@@ -931,15 +923,12 @@ const UIOverlay: React.FC<Props> = ({
                          ))}
                      </div>
 
-                     {/* 4-Layer Step Sequencer */}
                      <div className="flex-1 flex flex-col gap-0.5 min-h-0 bg-black/20 rounded-sm p-1 border border-zinc-800">
                          {(['kick', 'snare', 'hihat', 'clap'] as const).map((layer) => (
                              <div key={layer} className="flex gap-px items-center h-full">
-                                 {/* Label */}
                                  <div className="w-6 text-[6px] font-bold text-zinc-500 uppercase text-right pr-1">
                                     {layer === 'hihat' ? 'HAT' : layer.substring(0,3)}
                                  </div>
-                                 {/* Steps */}
                                  <div className="flex-1 flex gap-px h-full">
                                      {drumSettings.pattern.map((step, i) => (
                                          <button 
@@ -963,7 +952,6 @@ const UIOverlay: React.FC<Props> = ({
                          ))}
                      </div>
 
-                     {/* Kit & Mix */}
                      <div className="flex gap-2 items-center justify-start mt-0.5">
                         <div className="flex items-center gap-1.5 bg-zinc-800/50 rounded-sm px-1 py-0.5 border border-zinc-700/50 w-20">
                              <span className="text-[7px] font-bold text-pink-500">DRM</span>
@@ -986,7 +974,6 @@ const UIOverlay: React.FC<Props> = ({
                  </div>
             </div>
 
-            {/* MODULE 3: DYNAMICS (Gate) - 2 Cols */}
             <div className="col-span-2 p-2 flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
                      <div className="flex items-center gap-1 text-orange-400">
@@ -1033,7 +1020,6 @@ const UIOverlay: React.FC<Props> = ({
                  </div>
             </div>
 
-            {/* MODULE 4: SYNTH (Osc & ADSR) - Replaced SEQ */}
             <div className="col-span-2 p-2 flex flex-col justify-between">
                  <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
                      <div className="flex items-center gap-1 text-yellow-400">
@@ -1043,7 +1029,6 @@ const UIOverlay: React.FC<Props> = ({
                  </div>
                  
                  <div className="flex flex-col h-full justify-between pt-1 gap-1">
-                     {/* Oscillators */}
                      <div className="flex gap-2">
                         {[1, 2].map(num => {
                             const oscKey = `osc${num}Type` as keyof typeof currentPreset.audio;
@@ -1072,7 +1057,6 @@ const UIOverlay: React.FC<Props> = ({
                         })}
                      </div>
 
-                     {/* ADSR Sliders */}
                      <div className="flex justify-between items-end flex-1 gap-1 mt-1 bg-black/30 rounded-sm p-1 border border-zinc-800">
                         {['attack', 'decay', 'sustain', 'release'].map((param) => {
                             const val = currentPreset.audio[param as keyof typeof currentPreset.audio] as number;
@@ -1104,7 +1088,6 @@ const UIOverlay: React.FC<Props> = ({
                  </div>
             </div>
 
-            {/* MODULE 5: GLOBAL (Master) - Increased to 2 Cols, includes Scales */}
             <div className="col-span-2 p-2 flex flex-col justify-between">
                  <div className="text-[9px] font-black uppercase tracking-widest font-mono text-teal-400 mb-1 border-b border-zinc-800 pb-1 flex items-center gap-1">
                     <Globe size={10} />
@@ -1112,7 +1095,6 @@ const UIOverlay: React.FC<Props> = ({
                  </div>
                  
                  <div className="flex gap-2 h-full items-center">
-                     {/* Left: Key/Scale */}
                      <div className="flex-1 flex flex-col justify-center gap-1 border-r border-zinc-800 pr-2">
                         <div className="space-y-0.5">
                             <label className="text-[6px] text-zinc-500 font-bold uppercase">Root</label>
@@ -1136,7 +1118,6 @@ const UIOverlay: React.FC<Props> = ({
                         </div>
                      </div>
                      
-                     {/* Right: Octave & Vol */}
                      <div className="flex gap-2 items-center justify-end flex-1 h-full">
                          <div className="flex flex-col items-center gap-0.5">
                              <button onClick={() => onOctaveChange(octave + 1)} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 p-0.5 rounded-sm"><ChevronUp size={10} /></button>
@@ -1154,14 +1135,11 @@ const UIOverlay: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Bottom Keys Row - Hardware Style */}
           <div className="border-t-4 border-zinc-800 bg-zinc-900 p-1 relative shadow-inner">
-               {/* 48 Keys (4 Octaves) */}
                <div className="flex h-20 gap-px relative pt-3 pb-1 px-1 bg-zinc-950 rounded-sm border border-zinc-800 shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]">
-                     {/* White Keys */}
                      {whiteKeys.map((semitone) => {
                          const isActive = activeMouseNote === semitone;
-                         const keyFreq = 65.41 * Math.pow(2, semitone / 12); // C2
+                         const keyFreq = 65.41 * Math.pow(2, semitone / 12);
                          const isSelected = Math.abs(currentPreset.audio.baseFreq - keyFreq) < 2; 
                          const isGlowing = isSelected && isSounding;
 
@@ -1191,13 +1169,10 @@ const UIOverlay: React.FC<Props> = ({
                          );
                      })}
                      
-                     {/* Black Keys */}
                      {blackKeys.map((semitone) => {
                          const whiteKeysBefore = Array.from({ length: semitone }).filter((_, n) => [0, 2, 4, 5, 7, 9, 11].includes(n % 12)).length;
-                         // Calculate position based on percentage of white key width
-                         // width per white key in % = 100 / numWhiteKeys
                          const keyWidthPct = 100 / numWhiteKeys;
-                         const blackKeyWidthPct = 2.0; // Slightly narrower for higher density
+                         const blackKeyWidthPct = 2.0;
                          const leftPos = (whiteKeysBefore * keyWidthPct) - (blackKeyWidthPct / 2);
                          
                          const isActive = activeMouseNote === semitone;
