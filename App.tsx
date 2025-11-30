@@ -74,6 +74,7 @@ const App: React.FC = () => {
   const baselineGateDivision = useRef<GateDivision>('1/32');
   
   const waitingForDropRef = useRef(false);
+  const dropActionTypeRef = useRef<'GROWL' | 'CHOP' | null>(null);
   
   const preGrowlGateSettings = useRef<GateSettings | null>(null);
   const preGrowlPreset = useRef<SynthPreset | null>(null);
@@ -242,12 +243,8 @@ const App: React.FC = () => {
              audioEngineRef.current.cancelGrowl(); 
           }
       } else {
-          if (preGrowlGateSettings.current) {
-              setGateSettings(preGrowlGateSettings.current);
-              baselineGateDivision.current = preGrowlGateSettings.current.division;
-          }
-          if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
-          if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
+          // If no history, just ensure we aren't stuck
+          if (audioEngineRef.current) audioEngineRef.current.cancelGrowl();
       }
       setCurrentGrowlName(null);
   }, [previousPreset, preset, fxState, drumSettings, gateSettings]);
@@ -300,16 +297,57 @@ const App: React.FC = () => {
 
   }, [preset, fxState, drumSettings, gateSettings, isChaosLocked]);
 
+  const executeDropRevert = useCallback((type: 'GROWL' | 'CHOP') => {
+      if (audioEngineRef.current) {
+          audioEngineRef.current.cancelGrowl();
+      }
+      
+      let targetGate = preGrowlGateSettings.current;
+      
+      // RESTORE SYNTH & FX from SNAPSHOT (Fixes "Reverting to previous/history" bug)
+      // Done for both GROWL and CHOP to ensure clean state
+      if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
+      if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
+      
+      if (type === 'GROWL') {
+          setActiveVisualEffect(null); // Clear growl visual
+      }
+      
+      // Fallback if gate was somehow unset
+      if (!targetGate) {
+          // Default behavior for drop fallback only if null
+          targetGate = { ...gateSettings, enabled: true, division: '1/32' };
+      }
+      
+      // Force imperative update to prevent race conditions
+      if (audioEngineRef.current && targetGate) {
+          audioEngineRef.current.setGateSettings(targetGate);
+      }
+      setGateSettings(targetGate);
+      baselineGateDivision.current = targetGate.division;
+      
+      waitingForDropRef.current = false;
+      setCurrentGrowlName(null);
+      dropActionTypeRef.current = null;
+  }, [gateSettings]);
+
   const handleGrowl = useCallback(() => {
+      // SNAPSHOT CURRENT STATE
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
       preGrowlFxState.current = fxState;
       preGrowlBaselineGate.current = baselineGateDivision.current;
+      
+      dropActionTypeRef.current = 'GROWL';
 
       const names = ["Yoi", "Reese", "Laser", "Screech", "Growl", "Grind", "Machine"];
       const engineGrowlId = Math.floor(Math.random() * 10) + 1;
       
       setCurrentGrowlName(names[Math.floor(Math.random() * names.length)]);
+      
+      // Trigger Visual Glitch
+      const randomVisual = Math.floor(Math.random() * 5);
+      setActiveVisualEffect(randomVisual);
 
       if (audioEngineRef.current) {
           audioEngineRef.current.triggerGrowl(engineGrowlId);
@@ -322,16 +360,21 @@ const App: React.FC = () => {
       if (drumSettings.enabled) {
           waitingForDropRef.current = true;
       } else {
+          // Fallback if no drums: Revert after 1s using SNAPSHOT logic (not handleRevertPreset)
           setTimeout(() => {
-              handleRevertPreset();
-              if (audioEngineRef.current) audioEngineRef.current.cancelGrowl();
+              executeDropRevert('GROWL');
           }, 1000);
       }
-  }, [gateSettings, preset, fxState, drumSettings, handleRevertPreset]);
+  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert]);
 
   const handleChop = useCallback(() => {
+      // SNAPSHOT CURRENT STATE
       preGrowlGateSettings.current = gateSettings;
+      preGrowlPreset.current = preset;
+      preGrowlFxState.current = fxState;
       preGrowlBaselineGate.current = baselineGateDivision.current;
+      
+      dropActionTypeRef.current = 'CHOP';
       
       const target: GateSettings = { ...gateSettings, enabled: true, division: '1/64' };
       
@@ -344,10 +387,10 @@ const App: React.FC = () => {
           waitingForDropRef.current = true;
       } else {
           setTimeout(() => {
-               if (preGrowlGateSettings.current) setGateSettings(preGrowlGateSettings.current);
+               executeDropRevert('CHOP');
           }, 1000);
       }
-  }, [gateSettings, drumSettings]);
+  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert]);
 
   useEffect(() => {
       if (waitingForDropRef.current && drumSettings.enabled) {
@@ -355,39 +398,12 @@ const App: React.FC = () => {
           const stepData = pattern[currentStep] || { kick: false, snare: false };
           
           if (stepData.kick || stepData.snare) {
-              
-              if (audioEngineRef.current) {
-                  audioEngineRef.current.cancelGrowl();
+              if (dropActionTypeRef.current) {
+                  executeDropRevert(dropActionTypeRef.current);
               }
-              
-              let targetGate = preGrowlGateSettings.current;
-              
-              if (previousPreset) {
-                  setPreset(previousPreset);
-                  setFxState(previousFxState || defaultFx);
-                  setPreviousPreset(preset); 
-              } else {
-                  if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
-                  if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
-              }
-              
-              // Fallback if gate was somehow unset
-              if (!targetGate || !targetGate.enabled) {
-                  targetGate = { ...gateSettings, enabled: true, division: '1/32' };
-              }
-              
-              // Force imperative update to prevent race conditions
-              if (audioEngineRef.current && targetGate) {
-                  audioEngineRef.current.setGateSettings(targetGate);
-              }
-              setGateSettings(targetGate);
-              baselineGateDivision.current = targetGate.division;
-              
-              waitingForDropRef.current = false;
-              setCurrentGrowlName(null);
           }
       }
-  }, [currentStep, drumSettings, preset, previousPreset, gateSettings]);
+  }, [currentStep, drumSettings, executeDropRevert]);
 
 
   const handleBigSave = useCallback(() => {
