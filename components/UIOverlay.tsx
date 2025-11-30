@@ -599,7 +599,7 @@ const UIOverlay: React.FC<Props> = ({
       {/* CENTRAL CONTROL GRID (Replacing Floating Buttons) */}
       {playState === PlayState.PLAYING && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-auto w-[500px] h-[300px]">
-            <div className="grid grid-cols-2 grid-rows-2 gap-4 w-full h-full">
+            <div className="grid grid-cols-2 grid-rows-2 gap-2 w-full h-full">
                 
                 {/* TOP LEFT: CHOP IT UP (Gate 1/64) */}
                 <button
@@ -704,10 +704,11 @@ const UIOverlay: React.FC<Props> = ({
                   className={`
                       group relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-xs tracking-wider transition-all w-full
                       border-2 border-black shadow-[4px_4px_0px_#000]
-                      active:translate-x-[2px] active:translate-y-[2px] active:shadow-none
+                      active:opacity-100 active:scale-95 active:shadow-none
+                      hover:scale-[1.02]
                       ${isCameraActive 
-                          ? 'bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white animate-pulse' 
-                          : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-teal-400 text-black hover:brightness-110 hover:scale-[1.02]'}
+                          ? 'bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white animate-pulse opacity-100 scale-[1.02]' 
+                          : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-teal-400 text-black opacity-50 hover:opacity-75'}
                   `}
               >
                   <Camera size={18} className={isCameraActive ? "animate-spin" : "group-hover:rotate-12 transition-transform"} />
