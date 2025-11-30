@@ -14,6 +14,37 @@ Oobleck is an interactive, browser-based audio synthesizer that translates physi
     *   **"Chop It Up":** Instant 1/64th note gating effects.
     *   **"Run It Back":** Instant state revert/undo for live performance transitions.
 
+## 🚀 Getting Started
+
+### Prerequisites
+*   Node.js (v18 or higher)
+*   npm or yarn
+
+### Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/yourusername/oobleck-synth.git
+    cd oobleck-synth
+    ```
+
+2.  **Install dependencies:**
+    ```bash
+    npm install
+    ```
+
+3.  **Configure API Key:**
+    This project uses the Gemini API for generative AI features.
+    *   Get a free API key from [Google AI Studio](https://aistudio.google.com/).
+    *   Create a `.env` file in the root directory.
+    *   Add your key: `API_KEY=your_api_key_here`
+
+4.  **Run the development server:**
+    ```bash
+    npm run dev
+    ```
+    Open your browser to the local host link provided (usually `http://localhost:5173`).
+
 ## 🎹 Controls
 
 ### Mouse / Touch
