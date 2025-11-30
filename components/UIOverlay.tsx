@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch } from '../types';
-import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS } from '../constants';
+import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch, DrumFX } from '../types';
+import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS, DRUM_FX_OPTIONS, GENRE_PRESETS } from '../constants';
 import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, ActivitySquare, Waves as WavesIcon, Triangle, BoxSelect, Save, Lock, Unlock } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
@@ -659,7 +659,7 @@ const UIOverlay: React.FC<Props> = ({
                         }
                     `}
                 >
-                    {isChaosLocked ? <Lock className="w-10 h-10 mb-2 text-zinc-500" /> : <Wand2 className="w-10 h-10 mb-2 animate-spin text-white drop-shadow-md" strokeWidth={3} />}
+                    {isChaosLocked ? <Lock className="w-10 h-10 mb-2 text-zinc-500 pointer-events-none" /> : <Wand2 className="w-10 h-10 mb-2 animate-spin text-white drop-shadow-md" strokeWidth={3} />}
                     <span className={`font-black text-2xl italic tracking-tighter drop-shadow-md ${isChaosLocked ? 'text-zinc-500' : 'text-white'}`}>
                         {isChaosLocked ? 'LOCKED' : 'CHAOS'}
                     </span>
@@ -910,7 +910,19 @@ const UIOverlay: React.FC<Props> = ({
                          {['HIPHOP', 'DISCO', 'HOUSE', 'DUBSTEP', 'METAL', 'FUNK', 'ROCK', 'BOOMBAP'].map((g) => (
                              <button
                                 key={g}
-                                onClick={() => onDrumChange({...drumSettings, genre: g as SamplerGenre})}
+                                onClick={() => {
+                                    const genre = g as SamplerGenre;
+                                    const presetData = GENRE_PRESETS[genre];
+                                    if (presetData) {
+                                        onDrumChange({
+                                            ...drumSettings,
+                                            genre: genre,
+                                            // Deep copy pattern to avoid mutating constants
+                                            pattern: presetData.pattern.map(step => ({...step}))
+                                        });
+                                        onArpChange({...arpSettings, bpm: presetData.bpm});
+                                    }
+                                }}
                                 className={`
                                     text-[6px] font-bold py-0.5 px-1 rounded-sm border-b 
                                     ${drumSettings.genre === g 
@@ -969,6 +981,13 @@ const UIOverlay: React.FC<Props> = ({
                             className="bg-black text-pink-500 text-[8px] font-bold uppercase border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none w-auto"
                          >
                             {DRUM_KITS.map(kit => <option key={kit} value={kit}>{kit}</option>)}
+                         </select>
+                         <select 
+                            value={drumSettings.fx} 
+                            onChange={(e) => onDrumChange({...drumSettings, fx: e.target.value as DrumFX})}
+                            className="bg-black text-blue-400 text-[8px] font-bold uppercase border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none w-auto"
+                         >
+                            {DRUM_FX_OPTIONS.map(fx => <option key={fx} value={fx}>{fx.replace('_', ' ')}</option>)}
                          </select>
                      </div>
                  </div>

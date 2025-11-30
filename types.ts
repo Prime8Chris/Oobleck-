@@ -85,12 +85,14 @@ export interface DrumStep {
 
 export type SamplerGenre = 'HIPHOP' | 'DISCO' | 'HOUSE' | 'DUBSTEP' | 'METAL' | 'FUNK' | 'ROCK' | 'BOOMBAP';
 export type DrumKit = '808' | '909' | 'ACOUSTIC' | 'CRUNKY' | 'INDUSTRIAL' | 'LOFI';
+export type DrumFX = 'DRY' | 'STUDIO' | 'OVERDRIVE' | '80s_TAPE' | 'OTT' | 'CRUNCH' | 'STADIUM';
 
 export interface DrumSettings {
   enabled: boolean;
   volume: number;
   genre: SamplerGenre;
   kit: DrumKit;
+  fx: DrumFX;
   pattern: DrumStep[]; // Array of 16 steps
 }
 

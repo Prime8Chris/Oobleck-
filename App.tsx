@@ -32,7 +32,7 @@ const App: React.FC = () => {
 
   const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
   const defaultArp: ArpSettings = { enabled: false, bpm: 86, division: '1/8', mode: 'UP', octaveRange: 1, gate: 0.5, steps: 1 };
-  const defaultDrums: DrumSettings = { enabled: false, volume: 1.0, genre: 'BOOMBAP', kit: 'ACOUSTIC', pattern: GENRE_PRESETS['BOOMBAP'].pattern };
+  const defaultDrums: DrumSettings = { enabled: false, volume: 1.0, genre: 'BOOMBAP', kit: 'ACOUSTIC', fx: 'DRY', pattern: GENRE_PRESETS['BOOMBAP'].pattern };
   const defaultGate: GateSettings = { enabled: false, pattern: 'TRANCE', division: '1/32', mix: 1.0 };
 
   const [userPatches, setUserPatches] = useState<(UserPatch | null)[]>(
@@ -293,6 +293,7 @@ const App: React.FC = () => {
     setGateSettings(newGate);
     baselineGateDivision.current = '1/32';
     
+    // Force Drum Enable on Chaos
     if (!drumSettings.enabled) {
         setDrumSettings(prev => ({ ...prev, enabled: true }));
     }
@@ -312,6 +313,7 @@ const App: React.FC = () => {
 
       if (audioEngineRef.current) {
           audioEngineRef.current.triggerGrowl(engineGrowlId);
+          // Instant imperative update
           audioEngineRef.current.setGateSettings({...gateSettings, enabled: false});
       }
       
@@ -369,10 +371,12 @@ const App: React.FC = () => {
                   if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
               }
               
+              // Fallback if gate was somehow unset
               if (!targetGate || !targetGate.enabled) {
                   targetGate = { ...gateSettings, enabled: true, division: '1/32' };
               }
               
+              // Force imperative update to prevent race conditions
               if (audioEngineRef.current && targetGate) {
                   audioEngineRef.current.setGateSettings(targetGate);
               }
@@ -414,6 +418,7 @@ const App: React.FC = () => {
 
   const handleLoadPatch = useCallback((patch: UserPatch) => {
       const wasDrumming = drumSettings.enabled;
+      const wasGateEnabled = gateSettings.enabled;
 
       setPreviousPreset(preset);
       setPreviousFxState(fxState);
@@ -426,6 +431,9 @@ const App: React.FC = () => {
       const newDrums = { ...patch.drumSettings, enabled: wasDrumming || patch.drumSettings.enabled };
       setDrumSettings(newDrums);
       
+      // Keep gate independent
+      // setGateSettings(patch.gateSettings); 
+      
       setArpSettings(patch.arpSettings);
       setOctave(patch.octave);
       
@@ -433,6 +441,7 @@ const App: React.FC = () => {
           audioEngineRef.current.setParams(patch.preset.audio);
           audioEngineRef.current.setFx(patch.fxState);
           audioEngineRef.current.setDrumSettings(newDrums);
+          // audioEngineRef.current.setGateSettings(patch.gateSettings);
           audioEngineRef.current.setArpSettings(patch.arpSettings);
           audioEngineRef.current.setOctave(patch.octave);
       }

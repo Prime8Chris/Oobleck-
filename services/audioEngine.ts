@@ -1,5 +1,5 @@
 
-import { AudioParams, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GateDivision } from '../types';
+import { AudioParams, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GateDivision, DrumFX } from '../types';
 import { GATE_PATTERNS } from '../constants';
 
 export class AudioEngine {
@@ -63,17 +63,23 @@ export class AudioEngine {
       volume: 1.0, 
       genre: 'HOUSE',
       kit: '808',
+      fx: 'DRY',
       pattern: Array(16).fill({ kick: false, snare: false, hihat: false, clap: false }) 
   };
   private currentStep: number = 0;
-  
-  // Gate State
-  private gateSettings: GateSettings = { enabled: false, pattern: 'OFF', division: '1/16', mix: 1.0 };
   
   // Drum Bus
   private drumCompressor: DynamicsCompressorNode | null = null;
   private drumGain: GainNode | null = null;
   private drumSaturation: WaveShaperNode | null = null;
+  
+  // Drum FX Nodes
+  private drumFxInput: GainNode | null = null;
+  private drumFxOutput: GainNode | null = null;
+  private drumFxChainNodes: AudioNode[] = [];
+
+  // Gate State
+  private gateSettings: GateSettings = { enabled: false, pattern: 'OFF', division: '1/16', mix: 1.0 };
 
   private currentFx: FxState = {
       delay: false, chorus: false, highpass: false,
@@ -131,6 +137,14 @@ export class AudioEngine {
 
     this.drumGain = this.ctx.createGain();
     this.drumGain.gain.value = this.safeNum(this.drumSettings.volume, 1.0);
+    
+    // Create FX Insert Points
+    this.drumFxInput = this.ctx.createGain();
+    this.drumFxOutput = this.ctx.createGain();
+    
+    // Routing: Input -> FX Chain -> Output -> Compressor -> Saturation -> Gain -> Master
+    this.drumFxInput.connect(this.drumFxOutput); // Default DRY (shorted)
+    this.drumFxOutput.connect(this.drumCompressor);
     
     this.drumCompressor.connect(this.drumSaturation);
     this.drumSaturation.connect(this.drumGain);
@@ -208,6 +222,7 @@ export class AudioEngine {
     this.startOscillators();
     this.startScheduler();
     this.updateFxState();
+    this.updateDrumFx();
   }
 
   private setupPhaser() {
@@ -408,11 +423,11 @@ export class AudioEngine {
 
   // --- DRUM SYNTHESIS (SAMPLER ENGINE) ---
   private triggerKick(time: number) {
-    if (!this.ctx || !this.drumCompressor) return;
+    if (!this.ctx || !this.drumFxInput) return;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.connect(gain);
-    gain.connect(this.drumCompressor);
+    gain.connect(this.drumFxInput); // Route to FX Bus
 
     const kit = this.drumSettings.kit || '808';
 
@@ -466,14 +481,14 @@ export class AudioEngine {
   }
 
   private triggerSnare(time: number) {
-    if (!this.ctx || !this.drumCompressor) return;
+    if (!this.ctx || !this.drumFxInput) return;
     const kit = this.drumSettings.kit || '808';
 
     // Tone
     const osc = this.ctx.createOscillator();
     const oscGain = this.ctx.createGain();
     osc.connect(oscGain);
-    oscGain.connect(this.drumCompressor);
+    oscGain.connect(this.drumFxInput);
     
     let toneFreq = 200;
     let toneDecay = 0.1;
@@ -508,7 +523,7 @@ export class AudioEngine {
     const noiseGain = this.ctx.createGain();
     noise.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    noiseGain.connect(this.drumCompressor);
+    noiseGain.connect(this.drumFxInput);
     
     if (Number.isFinite(time)) {
         noiseGain.gain.setValueAtTime(0.7, time);
@@ -519,7 +534,7 @@ export class AudioEngine {
   }
 
   private triggerHiHat(time: number) {
-    if (!this.ctx || !this.drumCompressor) return;
+    if (!this.ctx || !this.drumFxInput) return;
     const kit = this.drumSettings.kit || '808';
     const duration = (kit === 'LOFI') ? 0.03 : 0.05;
 
@@ -544,7 +559,7 @@ export class AudioEngine {
     
     noise.connect(filter);
     filter.connect(gain);
-    gain.connect(this.drumCompressor);
+    gain.connect(this.drumFxInput);
 
     const vol = 0.4;
     if (Number.isFinite(time)) {
@@ -555,7 +570,7 @@ export class AudioEngine {
   }
 
   private triggerClap(time: number) {
-    if (!this.ctx || !this.drumCompressor) return;
+    if (!this.ctx || !this.drumFxInput) return;
     const decay = 0.2;
 
     const bufferSize = this.ctx.sampleRate * decay;
@@ -573,7 +588,7 @@ export class AudioEngine {
 
     noise.connect(filter);
     filter.connect(gain);
-    gain.connect(this.drumCompressor);
+    gain.connect(this.drumFxInput);
 
     // Clap envelope (multiple strikes)
     const t = time;
@@ -668,8 +683,6 @@ export class AudioEngine {
       this.gainNode.gain.cancelScheduledValues(now);
       this.gainNode.gain.setValueAtTime(this.safeNum(this.synthVolume, 0.15), now);
       
-      // Note: Removed the setTimeout reset. App.tsx will call cancelGrowl() on kick/snare.
-
       // Helper to set oscs quickly
       const setOsc = (osc: OscillatorNode, type: OscillatorType, freqMult: number = 1, detune: number = 0) => {
           osc.type = type;
@@ -888,16 +901,12 @@ export class AudioEngine {
 
           case 4: // Chorus -> Flanger
              if (this.delay && this.delayFeedback && this.delayDryWet) {
-                 // Ensure we hear the effect by temporarily enabling delay if it's off.
-                 // CRITICAL: Cap at 0.5 wetness (50%) as requested.
                  const currentWet = this.currentFx.delay ? 0.5 : 0;
                  if (currentWet < 0.5) {
                      this.delayDryWet.gain.cancelScheduledValues(now);
                      this.delayDryWet.gain.setValueAtTime(currentWet, now);
-                     // Ramp up to 0.5 max
                      this.delayDryWet.gain.linearRampToValueAtTime(0.5, now + 0.1);
                      
-                     // Restore state after effect (~1.5s)
                      setTimeout(() => {
                          if (this.delayDryWet && this.ctx) {
                              const target = this.currentFx.delay ? 0.5 : 0;
@@ -968,7 +977,6 @@ export class AudioEngine {
              break;
 
           case 8: // FM Mod Shriek
-             // Simulate via rapid filter modulation since we don't have true FM setup exposed here easily
              if (this.filter && Number.isFinite(this.params.filterCutoffBase)) {
                  this.filter.Q.setValueAtTime(20, now);
                  this.filter.frequency.setValueAtTime(this.params.filterCutoffBase, now);
@@ -1025,14 +1033,21 @@ export class AudioEngine {
   }
   
   public setDrumSettings(settings: DrumSettings) {
+      const prevFx = this.drumSettings.fx;
       if (settings.enabled && !this.drumSettings.enabled) {
           this.currentStep = 0;
       }
       this.drumSettings = settings;
-      // Safety check for drumGain and ctx before accessing currentTime
+      
+      // Update volume
       if (this.drumGain && this.ctx) {
           const vol = this.safeNum(settings.volume, 1.0);
           this.drumGain.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.1);
+      }
+      
+      // Check if FX changed
+      if (prevFx !== settings.fx) {
+          this.updateDrumFx();
       }
   }
   
@@ -1044,26 +1059,15 @@ export class AudioEngine {
       const now = this.ctx.currentTime;
 
       if (!settings.enabled) {
-           // Gate disabled: Open it up
            this.gateNode.gain.cancelScheduledValues(now);
            this.gateNode.gain.setTargetAtTime(1.0, now, 0.1);
       } else if (settings.enabled && !wasEnabled) {
-           // Gate turning ON: Punch it in NOW
            this.gateNode.gain.cancelScheduledValues(now);
-           
-           // Calculate 16th note duration for the current tempo
            const bpm = this.safeNum(this.arpSettings.bpm, 120);
            const secondsPerBeat = 60 / bpm;
            const sixteenthTime = secondsPerBeat / 4;
-           
-           // IMPORTANT: Use currentStep - 1 (or wrap around) because the scheduler loop
-           // has already advanced 'currentStep' for the NEXT lookahead event.
-           // If we use currentStep directly, we might play the 'off' beat of a trance pattern
-           // right when the drop kicks in.
            const patternLength = this.drumSettings.pattern.length || 16;
            const playbackStep = (this.currentStep - 1 + patternLength) % patternLength;
-           
-           // Force schedule current step immediately
            this.scheduleGate(now, playbackStep, sixteenthTime);
       }
   }
@@ -1085,17 +1089,167 @@ export class AudioEngine {
     const now = this.ctx.currentTime;
     if (this.highpass) this.highpass.frequency.setTargetAtTime(this.currentFx.highpass ? 560 : 10, now, 0.1);
     
-    // Explicit 0.5 cap for delay wetness
     if (this.delayDryWet) this.delayDryWet.gain.setTargetAtTime(this.currentFx.delay ? 0.5 : 0, now, 0.1);
     
     const reverbVal = this.safeNum(this.params.reverbMix, 0.3);
     if (this.dryWet) this.dryWet.gain.setTargetAtTime(this.currentFx.reverb ? 0.6 : reverbVal, now, 0.1);
     if (this.preDistortionGain) this.preDistortionGain.gain.setTargetAtTime(this.currentFx.distortion ? 50.0 : 1.0, now, 0.1);
     
-    // Updated Logic: "Crunch" is now "Saturate". Use makeDistortionCurve(15) for warm saturation instead of bitcrushing.
     if (this.crunchShaper) this.crunchShaper.curve = this.currentFx.crunch ? this.makeDistortionCurve(15) : this.makeIdentityCurve();
     
     if (this.phaserWetGain) this.phaserWetGain.gain.setTargetAtTime(this.currentFx.phaser ? 1.0 : 0, now, 0.1);
+  }
+
+  private async updateDrumFx() {
+      if (!this.ctx || !this.drumFxInput || !this.drumFxOutput) return;
+      
+      // 1. Disconnect input to break chain safely
+      this.drumFxInput.disconnect();
+      
+      // 2. Clear old nodes
+      this.drumFxChainNodes.forEach(n => n.disconnect());
+      this.drumFxChainNodes = [];
+      
+      // 3. Rebuild Chain based on Selection
+      const fxType = this.drumSettings.fx;
+      
+      if (fxType === 'DRY') {
+          this.drumFxInput.connect(this.drumFxOutput);
+          return;
+      }
+      
+      let chainStart: AudioNode | null = null;
+      let chainEnd: AudioNode | null = null;
+      
+      const addToChain = (node: AudioNode) => {
+          this.drumFxChainNodes.push(node);
+          if (!chainStart) {
+              chainStart = node;
+              chainEnd = node;
+          } else {
+              chainEnd?.connect(node);
+              chainEnd = node;
+          }
+      };
+      
+      if (fxType === 'STUDIO') {
+          // Slapback Delay (1/16th) + Light Reverb
+          const bpm = this.safeNum(this.arpSettings.bpm, 120);
+          const delayTime = (60 / bpm) / 4; 
+          
+          const delay = this.ctx.createDelay(1.0);
+          delay.delayTime.value = delayTime;
+          
+          const delayGain = this.ctx.createGain();
+          delayGain.gain.value = 0.3; // 30% wet
+          
+          // Parallel processing is tricky with linear chain builder, 
+          // but for drum insert we usually want series or mix. 
+          // Let's do a simple mix: Input -> Split -> (Dry + Wet) -> Output
+          // To keep it simple in this structure, we'll put delay in parallel via a wrapper gain
+          // Actually, let's just make a small reverb impulse for "Studio"
+          
+          const verb = this.ctx.createConvolver();
+          // Short room reverb
+          verb.buffer = await this.createReverbImpulse(0.5, 5.0); 
+          const verbGain = this.ctx.createGain();
+          verbGain.gain.value = 0.3;
+          
+          // Re-route manually for parallel mix
+          this.drumFxInput.connect(this.drumFxOutput); // Dry signal
+          
+          this.drumFxInput.connect(delay);
+          delay.connect(delayGain);
+          delayGain.connect(this.drumFxOutput);
+          
+          this.drumFxInput.connect(verb);
+          verb.connect(verbGain);
+          verbGain.connect(this.drumFxOutput);
+          
+          this.drumFxChainNodes.push(delay, delayGain, verb, verbGain);
+          return; // Custom routing done
+      }
+      
+      if (fxType === 'OVERDRIVE') {
+          const shaper = this.ctx.createWaveShaper();
+          shaper.curve = this.makeDistortionCurve(100); // Hard clip
+          addToChain(shaper);
+      }
+      
+      if (fxType === '80s_TAPE') {
+          const sat = this.ctx.createWaveShaper();
+          sat.curve = this.makeDistortionCurve(20); // Warm saturation
+          
+          const lpf = this.ctx.createBiquadFilter();
+          lpf.type = 'highshelf'; // Roll off highs
+          lpf.frequency.value = 7000;
+          lpf.gain.value = -12; // Cut 12dB above 7k
+          
+          addToChain(sat);
+          addToChain(lpf);
+      }
+      
+      if (fxType === 'OTT') {
+          // Simulated via EQ Smile Curve + Compression
+          const lowBoost = this.ctx.createBiquadFilter();
+          lowBoost.type = 'lowshelf';
+          lowBoost.frequency.value = 100;
+          lowBoost.gain.value = 6;
+          
+          const highBoost = this.ctx.createBiquadFilter();
+          highBoost.type = 'highshelf';
+          highBoost.frequency.value = 5000;
+          highBoost.gain.value = 6;
+          
+          const midScoop = this.ctx.createBiquadFilter();
+          midScoop.type = 'peaking';
+          midScoop.frequency.value = 1000;
+          midScoop.Q.value = 1;
+          midScoop.gain.value = -3;
+          
+          addToChain(lowBoost);
+          addToChain(highBoost);
+          addToChain(midScoop);
+          
+          // We rely on the main drumCompressor which follows this chain
+          // But let's boost input gain to slam the compressor
+          const boost = this.ctx.createGain();
+          boost.gain.value = 2.0; 
+          addToChain(boost);
+      }
+      
+      if (fxType === 'CRUNCH') {
+          const crusher = this.ctx.createWaveShaper();
+          crusher.curve = this.makeStepCurve(4); // 4-bit depth simulation
+          addToChain(crusher);
+      }
+      
+      if (fxType === 'STADIUM') {
+          const verb = this.ctx.createConvolver();
+          // Long hall
+          verb.buffer = await this.createReverbImpulse(3.0, 2.0);
+          
+          const verbMix = this.ctx.createGain();
+          verbMix.gain.value = 0.5;
+          
+          // Parallel Routing
+          this.drumFxInput.connect(this.drumFxOutput); // Dry
+          this.drumFxInput.connect(verb);
+          verb.connect(verbMix);
+          verbMix.connect(this.drumFxOutput);
+          
+          this.drumFxChainNodes.push(verb, verbMix);
+          return;
+      }
+      
+      // Connect Series Chain
+      if (chainStart && chainEnd) {
+          this.drumFxInput.connect(chainStart);
+          chainEnd.connect(this.drumFxOutput);
+      } else {
+          // Fallback
+          this.drumFxInput.connect(this.drumFxOutput);
+      }
   }
 
   public setOctave(offset: number) {

@@ -1,5 +1,5 @@
 
-import { SynthPreset, SamplerGenre, DrumStep, GatePatternName, DrumKit, GateDivision } from './types';
+import { SynthPreset, SamplerGenre, DrumStep, GatePatternName, DrumKit, GateDivision, DrumFX } from './types';
 
 export const DEFAULT_PRESET: SynthPreset = {
   description: "Classic Oobleck (Cornstarch & Water)",
@@ -347,6 +347,7 @@ export const ALL_PRESETS: SynthPreset[] = [
 ];
 
 export const DRUM_KITS: DrumKit[] = ['808', '909', 'ACOUSTIC', 'CRUNKY', 'INDUSTRIAL', 'LOFI'];
+export const DRUM_FX_OPTIONS: DrumFX[] = ['DRY', 'STUDIO', 'OVERDRIVE', '80s_TAPE', 'OTT', 'CRUNCH', 'STADIUM'];
 
 export const GATE_DIVISIONS: GateDivision[] = ['1/64', '1/32', '1/16', '1/8', '1/4', '1/2', '1BAR', '2BAR'];
 
