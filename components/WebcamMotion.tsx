@@ -37,6 +37,8 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
     
     // Centroid tracking for Motion Vectors
     const prevCentroid = useRef<{x: number, y: number} | null>(null);
+    // Smooth position tracking to prevent jitter
+    const smoothPos = useRef<{x: number, y: number} | null>(null);
 
     const effectRotationRef = useRef<number>(0);
     const prevFrameDataRef = useRef<Uint8ClampedArray | null>(null);
@@ -166,7 +168,7 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
         const prevData = prevFrameDataRef.current;
         const currentZoneBrightness = prevZoneBrightnessRef.current;
 
-        // IMPROVEMENT: Stride 8 (Every 2nd pixel)
+        // IMPROVEMENT: Stride 8 (Every 2nd pixel) for resolution
         for (let i = 0; i < len; i += 8) { 
             const r = data[i];
             const g = data[i+1];
@@ -182,11 +184,11 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
             nextZoneCounts[zoneIdx]++;
 
             if (prevData) {
-                // PER-ZONE ADAPTIVE THRESHOLD (Tuned for Stability)
+                // PER-ZONE ADAPTIVE THRESHOLD
                 const zoneB = currentZoneBrightness[zoneIdx];
                 const normB = zoneB / 255;
                 
-                // Raised floor from 5 to 12 to filter camera noise in dark areas
+                // Adaptive noise floor: higher threshold in bright light, lower in dark
                 const localThreshold = Math.max(12, Math.min(60, 10 + normB * 50));
 
                 const diff = 
@@ -217,7 +219,7 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
             prevFrameDataRef.current.set(data);
         }
         
-        // Physics Update (Centroid)
+        // Physics Update (Centroid & Vectors)
         if (changedPixelCount > 5) {
             const currentCentroidX = sumX / changedPixelCount;
             const currentCentroidY = sumY / changedPixelCount;
@@ -225,60 +227,87 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
             const screenX = (currentCentroidX / width) * window.innerWidth;
             const screenY = (currentCentroidY / height) * window.innerHeight;
             
-            inputRef.current.x = screenX;
-            inputRef.current.y = screenY;
+            // SMOOTHING LOGIC
+            if (!smoothPos.current) smoothPos.current = { x: screenX, y: screenY };
             
+            // Density Factor: 0.0 to 1.0 (How "solid" is the object moving?)
+            // Max pixels approx 3000. 
+            const density = Math.min(changedPixelCount / 400, 1.0);
+            
+            // Variable smoothing: High density (solid) = snappy (0.5), Low density (air) = smooth (0.1)
+            const smoothFactor = 0.1 + (density * 0.4); 
+            
+            smoothPos.current.x = smoothPos.current.x * (1 - smoothFactor) + screenX * smoothFactor;
+            smoothPos.current.y = smoothPos.current.y * (1 - smoothFactor) + screenY * smoothFactor;
+            
+            // Update Global Input Ref
+            inputRef.current.x = smoothPos.current.x;
+            inputRef.current.y = smoothPos.current.y;
+            
+            // Calculate Velocity Vector manually to inject "Mass"
             if (prevCentroid.current) {
-                const dx = currentCentroidX - prevCentroid.current.x;
-                const dy = currentCentroidY - prevCentroid.current.y;
-                inputRef.current.vx = dx * 5; 
-                inputRef.current.vy = dy * 5;
+                const dx = smoothPos.current.x - ((prevCentroid.current.x / width) * window.innerWidth);
+                const dy = smoothPos.current.y - ((prevCentroid.current.y / height) * window.innerHeight);
+                
+                // Inject Density into velocity to create "Hardness" in FluidCanvas
+                // FluidCanvas calculates hardness = speed * thickeningFactor.
+                // We boost speed artificially if the object is dense (lots of pixels).
+                const massMultiplier = 1 + (density * 2.0); 
+                
+                inputRef.current.vx = dx * 0.5 * massMultiplier;
+                inputRef.current.vy = dy * 0.5 * massMultiplier;
             }
+            
             prevCentroid.current = { x: currentCentroidX, y: currentCentroidY };
         } else {
+            // Decay
             inputRef.current.vx *= 0.9;
             inputRef.current.vy *= 0.9;
-            prevCentroid.current = null;
+            if (smoothPos.current) {
+                // Drift to center slowly if lost tracking
+                // smoothPos.current.x += (window.innerWidth/2 - smoothPos.current.x) * 0.01;
+                // smoothPos.current.y += (window.innerHeight/2 - smoothPos.current.y) * 0.01;
+            }
         }
 
         // --- TRIGGER LOGIC ---
-        const zoneTriggerThreshold = 0.85; // Slightly harder to trigger (was 0.8)
-        const energyGain = 0.15; // Slower buildup (was 0.25) to prevent instant triggers
-        const energyDecay = 0.90; // Decay factor
+        const zoneTriggerThreshold = 0.85; 
+        const energyGain = 0.15; 
+        const energyDecay = 0.92; // Slower decay for smoother meters
         
         let zonesChanged = false;
         
         for(let i=0; i<4; i++) {
             const zoneB = currentZoneBrightness[i];
             
-            // ADAPTIVE SENSITIVITY BOOST (Reduced cap)
-            // Reduced max boost from 6.0 to 3.5 to prevent noise triggers in pitch black
+            // ADAPTIVE SENSITIVITY BOOST
             const sensitivityBoost = Math.max(1.0, 3.5 - (zoneB / 50));
             
-            const zoneMaxPixels = 384; // Approx pixels per zone with new stride
+            const zoneMaxPixels = 384; 
             const activityLevel = Math.min((zoneActivity[i] / (zoneMaxPixels * 0.05)) * sensitivityBoost, 2.0);
             
             zoneEnergy.current[i] += activityLevel * energyGain;
             
-            // Clamp
+            // Clamp Max Energy
             if (zoneEnergy.current[i] > 1.2) zoneEnergy.current[i] = 1.2;
 
-            // Global cooldown check (500ms) to prevent multiple zones firing at once
+            // Trigger Check
             if (zoneEnergy.current[i] > zoneTriggerThreshold && 
                 timestamp > zoneCooldowns.current[i] && 
                 timestamp > lastGlobalTriggerTime.current + 500) {
                 
-                zoneCooldowns.current[i] = timestamp + 1500; // Longer cooldown per zone
+                zoneCooldowns.current[i] = timestamp + 1500; 
                 lastGlobalTriggerTime.current = timestamp;
                 
                 activeZones.current[i] = true;
-                zoneEnergy.current[i] = 0; 
+                
+                // Smooth Release: Don't reset to 0, subtract chunk so it can re-trigger easier if movement sustains,
+                // but still requires a fresh "push"
+                zoneEnergy.current[i] -= 0.6; 
 
                 const effectIdx = (i + effectRotationRef.current) % 5;
                 
-                // USE REF for Callback to avoid stale state capture
                 onZoneTriggerRef.current(i, effectIdx);
-                
                 zonesChanged = true;
                 
                 setTimeout(() => { 
@@ -286,6 +315,7 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
                     setUiActiveZones([...activeZones.current]);
                 }, 300);
             }
+            
             zoneEnergy.current[i] *= energyDecay;
         }
 
@@ -346,9 +376,9 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
         }
 
         const now = Date.now();
-        if (zonesChanged || now - lastUiUpdateRef.current > 50) { // Update faster (50ms) for smoother UI meters
+        if (zonesChanged || now - lastUiUpdateRef.current > 50) { 
             setMotionLevel(Math.min(changedPixelCount / 200, 1));
-            setUiZoneEnergy([...zoneEnergy.current]); // Sync energy for meters
+            setUiZoneEnergy([...zoneEnergy.current]); 
             if (zonesChanged) setUiActiveZones([...activeZones.current]);
             lastUiUpdateRef.current = now;
         }
