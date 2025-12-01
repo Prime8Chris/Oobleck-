@@ -1,7 +1,11 @@
 
 export interface AudioParams {
-  osc1Type: 'sine' | 'square' | 'sawtooth' | 'triangle';
-  osc2Type: 'sine' | 'square' | 'sawtooth' | 'triangle';
+  osc1Type: 'sine' | 'square' | 'sawtooth' | 'triangle' | 'noise' | 'noisy_sub' | 'supersaw';
+  osc2Type: 'sine' | 'square' | 'sawtooth' | 'triangle' | 'noise' | 'noisy_sub' | 'supersaw';
+  osc3Type?: 'sine' | 'white' | 'pink' | 'brown';
+  osc1Vol?: number;
+  osc2Vol?: number;
+  osc3Vol?: number;
   baseFreq: number;
   detuneSpread: number;
   filterCutoffBase: number;
@@ -114,4 +118,10 @@ export interface UserPatch {
     gateSettings: GateSettings;
     arpSettings: ArpSettings;
     octave: number;
+}
+
+export interface LeaderboardEntry {
+    name: string;
+    score: number;
+    date: string;
 }

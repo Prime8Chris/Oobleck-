@@ -99,6 +99,14 @@ export class AudioEngine {
       return Number.isFinite(val) ? val as number : def;
   }
 
+  private getValidOscType(type: string): OscillatorType {
+      const valid: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
+      if (valid.includes(type as OscillatorType)) {
+          return type as OscillatorType;
+      }
+      return 'sawtooth'; // Fallback for custom types
+  }
+
   public async init() {
     // If a stop was scheduled (e.g. StrictMode remount), cancel it
     if (this.stopTimeout) {
@@ -259,10 +267,10 @@ export class AudioEngine {
     if (!this.ctx || !this.filter) return;
     const base = this.safeNum(this.params.baseFreq, 110);
     this.osc1 = this.ctx.createOscillator();
-    this.osc1.type = this.params.osc1Type;
+    this.osc1.type = this.getValidOscType(this.params.osc1Type);
     this.osc1.frequency.value = base;
     this.osc2 = this.ctx.createOscillator();
-    this.osc2.type = this.params.osc2Type;
+    this.osc2.type = this.getValidOscType(this.params.osc2Type);
     this.osc2.frequency.value = base * 1.01; 
     this.osc3 = this.ctx.createOscillator(); 
     this.osc3.type = 'sine';
@@ -1013,8 +1021,8 @@ export class AudioEngine {
   public setParams(newParams: AudioParams) {
     this.params = newParams;
     if (!this.ctx) return;
-    if (this.osc1) this.osc1.type = this.params.osc1Type;
-    if (this.osc2) this.osc2.type = this.params.osc2Type;
+    if (this.osc1) this.osc1.type = this.getValidOscType(this.params.osc1Type);
+    if (this.osc2) this.osc2.type = this.getValidOscType(this.params.osc2Type);
     if (this.shaper) this.shaper.curve = this.makeDistortionCurve(this.safeNum(this.params.distortionAmount, 0));
     this.updateFxState();
   }
@@ -1082,6 +1090,12 @@ export class AudioEngine {
 
   public getCurrentStep(): number {
       return this.currentStep;
+  }
+  
+  // Public method to trigger a victory sound or visual (optional, but good for scoring)
+  public triggerVictory() {
+      // Placeholder for victory sound logic if needed
+      // Currently just exposes functionality
   }
 
   private updateFxState() {

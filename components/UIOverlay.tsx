@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch, DrumFX } from '../types';
+import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch, DrumFX, LeaderboardEntry } from '../types';
 import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS, DRUM_FX_OPTIONS, GENRE_PRESETS } from '../constants';
-import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, Activity as ActivityIcon, Waves as WavesIcon, Triangle, BoxSelect, Save, Lock, Unlock } from 'lucide-react';
+import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, Activity as ActivityIcon, Waves as WavesIcon, Triangle, BoxSelect, Save, Lock, Unlock, Trophy } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
 interface Props {
@@ -67,6 +67,11 @@ interface Props {
   score: number;
   scorePopups: {id: number, val: number, label: string}[];
   activePoints: {id: number, x: number, y: number, val: number}[];
+  
+  // Leaderboard
+  leaderboard: LeaderboardEntry[];
+  showHighScoreInput: boolean;
+  onNameSubmit: (name: string) => void;
 }
 
 const FxButton: React.FC<{ label: string, active: boolean, onClick: () => void, icon: any, color: string }> = ({ label, active, onClick, icon: Icon, color }) => {
@@ -153,6 +158,26 @@ const ScoreBoard: React.FC<{ score: number, popups: {id: number, val: number, la
         </div>
     )
 }
+
+const Leaderboard: React.FC<{ entries: LeaderboardEntry[] }> = ({ entries }) => (
+    <div className="mt-2 bg-black/60 backdrop-blur rounded-xl border border-yellow-500/20 p-2 w-[100px]">
+        <div className="flex items-center gap-1 mb-1 border-b border-white/10 pb-1">
+            <Trophy size={8} className="text-yellow-500" />
+            <span className="text-[7px] font-bold text-yellow-500 uppercase tracking-widest">TOP 3</span>
+        </div>
+        <div className="flex flex-col gap-1.5">
+            {entries.map((entry, i) => (
+                <div key={i} className="flex flex-col">
+                    <div className="flex justify-between items-center text-[8px]">
+                        <span className="font-bold text-white">{i+1}. {entry.name}</span>
+                        <span className="text-yellow-400 font-mono">{entry.score}</span>
+                    </div>
+                    <span className="text-[6px] text-gray-500">{entry.date}</span>
+                </div>
+            ))}
+        </div>
+    </div>
+);
 
 // Local Floating Score for Buttons
 const FloatingScore: React.FC<{ popups: {id: number, val: number, label: string}[], filter: string }> = ({ popups, filter }) => {
@@ -395,7 +420,8 @@ const UIOverlay: React.FC<Props> = ({
   onGrowl, currentGrowlName, onChop,
   userPatches, onLoadPatch, onBigSave, saveButtonText,
   nextSaveSlotIndex, isChaosLocked, onToggleChaosLock,
-  score, scorePopups, activePoints
+  score, scorePopups, activePoints,
+  leaderboard, showHighScoreInput, onNameSubmit
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [hasRandomized, setHasRandomized] = useState(false);
@@ -406,6 +432,7 @@ const UIOverlay: React.FC<Props> = ({
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isAltPressed, setIsAltPressed] = useState(false);
   const [isEscPressed, setIsEscPressed] = useState(false);
+  const [highScoreName, setHighScoreName] = useState('');
   
   const saveBtnRef = useRef<HTMLButtonElement>(null);
   const presetBtnRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -662,6 +689,45 @@ const UIOverlay: React.FC<Props> = ({
 
       {flyingThumb && (
           <FlyingThumbImpl key={flyingThumb.id} sx={flyingThumb.sx} sy={flyingThumb.sy} tx={flyingThumb.tx} ty={flyingThumb.ty} onComplete={() => setFlyingThumb(null)} />
+      )}
+      
+      {/* HIGH SCORE CELEBRATION */}
+      {showHighScoreInput && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md pointer-events-auto">
+              <div className="bg-gradient-to-br from-yellow-500 via-orange-500 to-red-500 p-1 rounded-2xl animate-pulse">
+                  <div className="bg-black p-8 rounded-xl border border-yellow-400 shadow-[0_0_50px_rgba(234,179,8,0.5)] text-center">
+                      <Trophy size={48} className="mx-auto text-yellow-400 mb-4 animate-bounce" />
+                      <h2 className="text-3xl font-black text-white mb-2 italic">NEW HIGH SCORE!</h2>
+                      <div className="text-4xl font-mono text-yellow-300 font-bold mb-4">{score.toLocaleString()}</div>
+                      <input 
+                          autoFocus
+                          maxLength={8}
+                          value={highScoreName}
+                          onChange={(e) => setHighScoreName(e.target.value.toUpperCase())}
+                          placeholder="ENTER NAME"
+                          className="bg-zinc-800 border-2 border-zinc-600 text-white text-center text-xl font-bold p-2 rounded mb-4 w-full uppercase focus:outline-none focus:border-yellow-400"
+                      />
+                      <button 
+                          onClick={() => onNameSubmit(highScoreName || "ANON")}
+                          className="bg-yellow-500 hover:bg-yellow-400 text-black font-black py-3 px-6 rounded-lg w-full transition-transform hover:scale-105"
+                      >
+                          CLAIM GLORY
+                      </button>
+                  </div>
+              </div>
+              {/* Confetti CSS */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                  {[...Array(50)].map((_, i) => (
+                      <div key={i} className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-[float-score_3s_ease-out_infinite]" 
+                           style={{ 
+                               left: `${Math.random() * 100}%`, 
+                               top: `${Math.random() * 100}%`,
+                               animationDelay: `${Math.random() * 2}s`
+                           }} 
+                      />
+                  ))}
+              </div>
+          </div>
       )}
 
       {currentGrowlName && (
@@ -923,6 +989,7 @@ const UIOverlay: React.FC<Props> = ({
             </div>
 
             <ScoreBoard score={score} popups={scorePopups} />
+            <Leaderboard entries={leaderboard} />
         </div>
       </div>
 

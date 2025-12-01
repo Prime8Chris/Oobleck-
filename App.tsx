@@ -5,7 +5,7 @@ import UIOverlay from './components/UIOverlay';
 import WebcamMotion from './components/WebcamMotion';
 import { AudioEngine } from './services/audioEngine';
 import { DEFAULT_PRESET, GENRE_PRESETS, ALL_PRESETS, GATE_DIVISIONS } from './constants';
-import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, VisualShape, CameraMode, RenderStyle, GateDivision, UserPatch } from './types';
+import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, VisualShape, CameraMode, RenderStyle, GateDivision, UserPatch, LeaderboardEntry } from './types';
 
 const SLANG_TERMS = ["FRESH", "DOPE", "BITCHIN'", "SICK", "Yoooo", "NASTY", "MINT", "OOF", "FACK"];
 
@@ -30,23 +30,75 @@ const App: React.FC = () => {
   const [currentGrowlName, setCurrentGrowlName] = useState<string | null>(null);
   const [isChaosLocked, setIsChaosLocked] = useState(false);
 
-  // SCORING STATE
+  // SCORING & LEADERBOARD STATE
   const [score, setScore] = useState(0);
   const [scorePopups, setScorePopups] = useState<{id: number, val: number, label: string}[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [showHighScoreInput, setShowHighScoreInput] = useState(false);
+  const [hasEnteredName, setHasEnteredName] = useState(false);
   
   // Sound Active Points (Flying from mouse to bank)
   const [activePoints, setActivePoints] = useState<{id: number, x: number, y: number, val: number}[]>([]);
   const lastScoreTimeRef = useRef(0);
 
+  useEffect(() => {
+      // Load Leaderboard
+      try {
+          const saved = localStorage.getItem('oobleck_leaderboard');
+          if (saved) {
+              setLeaderboard(JSON.parse(saved));
+          } else {
+              // Defaults
+              setLeaderboard([
+                  { name: "OOB", score: 5000, date: new Date().toLocaleDateString() },
+                  { name: "LECK", score: 2500, date: new Date().toLocaleDateString() },
+                  { name: "SYNTH", score: 1000, date: new Date().toLocaleDateString() }
+              ]);
+          }
+      } catch (e) {
+          console.error("Failed to load leaderboard", e);
+      }
+  }, []);
+
   const addScore = useCallback((amount: number, label: string) => {
-      setScore(s => s + amount);
+      setScore(s => {
+          const newScore = s + amount;
+          
+          // Check for high score
+          if (!hasEnteredName) {
+              const lowestTopScore = leaderboard.length < 3 ? 0 : leaderboard[leaderboard.length - 1].score;
+              if (newScore > lowestTopScore && !showHighScoreInput) {
+                  setShowHighScoreInput(true);
+                  if (audioEngineRef.current) audioEngineRef.current.triggerVictory();
+              }
+          }
+          return newScore;
+      });
+      
       const id = Date.now() + Math.random();
       setScorePopups(prev => [...prev, { id, val: amount, label }]);
-      // Cleanup popup after animation
       setTimeout(() => {
           setScorePopups(prev => prev.filter(p => p.id !== id));
       }, 1000);
-  }, []);
+  }, [leaderboard, hasEnteredName, showHighScoreInput]);
+
+  const handleNameSubmit = (name: string) => {
+      const newEntry: LeaderboardEntry = {
+          name: name.substring(0, 8).toUpperCase(),
+          score: score,
+          date: new Date().toLocaleDateString()
+      };
+      
+      const newBoard = [...leaderboard, newEntry]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+          
+      setLeaderboard(newBoard);
+      localStorage.setItem('oobleck_leaderboard', JSON.stringify(newBoard));
+      
+      setShowHighScoreInput(false);
+      setHasEnteredName(true);
+  };
 
   const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
   const defaultArp: ArpSettings = { enabled: false, bpm: 86, division: '1/8', mode: 'UP', octaveRange: 1, gate: 0.5, steps: 1 };
@@ -129,7 +181,6 @@ const App: React.FC = () => {
         if (wasSoundingRef.current) {
             const now = Date.now();
             const bpm = arpSettingsRef.current.bpm || 120;
-            // 32nd note duration in ms: (60000 / BPM) / 8
             const msPer32nd = (60000 / bpm) / 8;
             
             if (now - lastScoreTimeRef.current > msPer32nd) {
@@ -137,18 +188,14 @@ const App: React.FC = () => {
                 const points = 5;
                 setScore(s => s + points);
                 
-                // Spawn flying point from current input location
-                // Fallback to center if input is off-screen
                 const x = inputRef.current.x > -100 ? inputRef.current.x : window.innerWidth / 2;
                 const y = inputRef.current.y > -100 ? inputRef.current.y : window.innerHeight / 2;
                 
                 const id = now + Math.random();
                 setActivePoints(prev => [...prev, { id, x, y, val: points }]);
-                
-                // Self-cleanup
                 setTimeout(() => {
                     setActivePoints(prev => prev.filter(p => p.id !== id));
-                }, 800); // Flight duration
+                }, 800); 
             }
         }
 
@@ -655,6 +702,10 @@ const App: React.FC = () => {
         score={score}
         scorePopups={scorePopups}
         activePoints={activePoints}
+        
+        leaderboard={leaderboard}
+        showHighScoreInput={showHighScoreInput}
+        onNameSubmit={handleNameSubmit}
       />
     </div>
   );
