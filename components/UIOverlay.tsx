@@ -66,9 +66,10 @@ interface Props {
   // Score
   score: number;
   scorePopups: {id: number, val: number, label: string}[];
+  activePoints: {id: number, x: number, y: number, val: number}[];
 }
 
-const FxButton = ({ label, active, onClick, icon: Icon, color }: { label: string, active: boolean, onClick: () => void, icon: any, color: string }) => {
+const FxButton: React.FC<{ label: string, active: boolean, onClick: () => void, icon: any, color: string }> = ({ label, active, onClick, icon: Icon, color }) => {
   const colorStyles: Record<string, string> = {
     cyan: 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.3)]',
     violet: 'bg-violet-500/20 border-violet-400/50 text-violet-300 shadow-[0_0_10px_rgba(167,139,250,0.3)]',
@@ -101,7 +102,7 @@ const FxButton = ({ label, active, onClick, icon: Icon, color }: { label: string
   );
 };
 
-const VolumeSlider = ({ value, onChange, vertical = false }: { value: number, onChange: (v: number) => void, vertical?: boolean }) => (
+const VolumeSlider: React.FC<{ value: number, onChange: (v: number) => void, vertical?: boolean }> = ({ value, onChange, vertical = false }) => (
   <div className={`relative flex items-center ${vertical ? 'h-16 w-8 justify-center' : 'w-full h-4'}`}>
     <div className={`absolute rounded-full bg-gray-900 border border-gray-700 ${vertical ? 'w-1.5 h-full' : 'w-full h-1.5'}`} />
     <div 
@@ -133,9 +134,9 @@ const VolumeSlider = ({ value, onChange, vertical = false }: { value: number, on
 );
 
 // New Scoreboard Component
-const ScoreBoard = ({ score, popups }: { score: number, popups: {id: number, val: number, label: string}[] }) => {
+const ScoreBoard: React.FC<{ score: number, popups: {id: number, val: number, label: string}[] }> = ({ score, popups }) => {
     return (
-        <div className="relative mt-2 bg-black/60 backdrop-blur rounded-xl border border-teal-500/30 p-2 w-[100px] flex flex-col items-end overflow-visible">
+        <div id="scoreboard-target" className="relative mt-2 bg-black/60 backdrop-blur rounded-xl border border-teal-500/30 p-2 w-[100px] flex flex-col items-end overflow-visible">
             <span className="text-[8px] font-bold text-teal-500 uppercase tracking-widest mb-1 w-full text-left">SCORE</span>
             <div className="font-mono text-xl font-black text-white drop-shadow-[0_0_8px_rgba(45,212,191,0.8)] tracking-tight">
                 {score.toLocaleString()}
@@ -154,7 +155,7 @@ const ScoreBoard = ({ score, popups }: { score: number, popups: {id: number, val
 }
 
 // Local Floating Score for Buttons
-const FloatingScore = ({ popups, filter }: { popups: {id: number, val: number, label: string}[], filter: string }) => {
+const FloatingScore: React.FC<{ popups: {id: number, val: number, label: string}[], filter: string }> = ({ popups, filter }) => {
     const relevant = popups.filter(p => p.label === filter);
     if (relevant.length === 0) return null;
     
@@ -173,6 +174,28 @@ const FloatingScore = ({ popups, filter }: { popups: {id: number, val: number, l
         </div>
     )
 }
+
+// Sound Active Flying Point
+const FlyingPoint: React.FC<{ startX: number, startY: number, val: number }> = ({ startX, startY, val }) => {
+    // Approximate target position of the scoreboard (Right sidebar)
+    // Dynamic calculation would be better but this works for 99% of cases
+    const targetX = window.innerWidth - 60; 
+    const targetY = 300; 
+
+    return (
+        <div 
+            className="fixed pointer-events-none z-[100] text-yellow-300 font-black text-lg drop-shadow-md animate-[fly-to-score_0.7s_ease-in-out_forwards]"
+            style={{ 
+                left: startX, 
+                top: startY,
+                '--tx': `${targetX - startX}px`,
+                '--ty': `${targetY - startY}px`
+            } as React.CSSProperties}
+        >
+            +{val}
+        </div>
+    );
+};
 
 // Neon Thumbs Up SVG
 const NeonThumbsUp = ({ className }: { className?: string }) => (
@@ -334,7 +357,7 @@ const OobleckLogo = ({ onClick, children }: { onClick: () => void, children?: Re
 );
 
 // Internal component for the flying animation
-const FlyingThumbImpl = ({sx, sy, tx, ty, onComplete}: {sx: number, sy: number, tx: number, ty: number, onComplete: () => void}) => {
+const FlyingThumbImpl: React.FC<{sx: number, sy: number, tx: number, ty: number, onComplete: () => void}> = ({sx, sy, tx, ty, onComplete}) => {
     const [style, setStyle] = useState<React.CSSProperties>({
         transform: `translate(${sx}px, ${sy}px) scale(1)`,
         opacity: 1
@@ -372,7 +395,7 @@ const UIOverlay: React.FC<Props> = ({
   onGrowl, currentGrowlName, onChop,
   userPatches, onLoadPatch, onBigSave, saveButtonText,
   nextSaveSlotIndex, isChaosLocked, onToggleChaosLock,
-  score, scorePopups
+  score, scorePopups, activePoints
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [hasRandomized, setHasRandomized] = useState(false);
@@ -626,10 +649,19 @@ const UIOverlay: React.FC<Props> = ({
             0% { opacity: 1; transform: translateY(0) scale(1); }
             100% { opacity: 0; transform: translateY(-30px) scale(1.2); }
         }
+        @keyframes fly-to-score {
+            0% { opacity: 1; transform: translate(0, 0) scale(1); }
+            100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0.2); }
+        }
       `}</style>
 
+      {/* FLYING SOUND POINTS */}
+      {activePoints.map(p => (
+          <FlyingPoint key={p.id} startX={p.x} startY={p.y} val={p.val} />
+      ))}
+
       {flyingThumb && (
-          <FlyingThumbImpl key={flyingThumb.id} {...flyingThumb} onComplete={() => setFlyingThumb(null)} />
+          <FlyingThumbImpl key={flyingThumb.id} sx={flyingThumb.sx} sy={flyingThumb.sy} tx={flyingThumb.tx} ty={flyingThumb.ty} onComplete={() => setFlyingThumb(null)} />
       )}
 
       {currentGrowlName && (

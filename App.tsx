@@ -33,6 +33,10 @@ const App: React.FC = () => {
   // SCORING STATE
   const [score, setScore] = useState(0);
   const [scorePopups, setScorePopups] = useState<{id: number, val: number, label: string}[]>([]);
+  
+  // Sound Active Points (Flying from mouse to bank)
+  const [activePoints, setActivePoints] = useState<{id: number, x: number, y: number, val: number}[]>([]);
+  const lastScoreTimeRef = useRef(0);
 
   const addScore = useCallback((amount: number, label: string) => {
       setScore(s => s + amount);
@@ -85,6 +89,9 @@ const App: React.FC = () => {
   const [drumSettings, setDrumSettings] = useState<DrumSettings>(defaultDrums);
   const [gateSettings, setGateSettings] = useState<GateSettings>(defaultGate);
 
+  // Ref to track BPM in the sync loop without closure stale state
+  const arpSettingsRef = useRef(arpSettings);
+
   const baselineGateDivision = useRef<GateDivision>('1/32');
   
   const waitingForDropRef = useRef(false);
@@ -117,6 +124,34 @@ const App: React.FC = () => {
         if (audioEngineRef.current) {
             setCurrentStep(audioEngineRef.current.getCurrentStep());
         }
+        
+        // Sound Active Scoring Loop
+        if (wasSoundingRef.current) {
+            const now = Date.now();
+            const bpm = arpSettingsRef.current.bpm || 120;
+            // 32nd note duration in ms: (60000 / BPM) / 8
+            const msPer32nd = (60000 / bpm) / 8;
+            
+            if (now - lastScoreTimeRef.current > msPer32nd) {
+                lastScoreTimeRef.current = now;
+                const points = 5;
+                setScore(s => s + points);
+                
+                // Spawn flying point from current input location
+                // Fallback to center if input is off-screen
+                const x = inputRef.current.x > -100 ? inputRef.current.x : window.innerWidth / 2;
+                const y = inputRef.current.y > -100 ? inputRef.current.y : window.innerHeight / 2;
+                
+                const id = now + Math.random();
+                setActivePoints(prev => [...prev, { id, x, y, val: points }]);
+                
+                // Self-cleanup
+                setTimeout(() => {
+                    setActivePoints(prev => prev.filter(p => p.id !== id));
+                }, 800); // Flight duration
+            }
+        }
+
         animationFrameRef.current = requestAnimationFrame(syncLoop);
     };
     syncLoop();
@@ -156,6 +191,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (audioEngineRef.current) audioEngineRef.current.setArpSettings(arpSettings);
+    arpSettingsRef.current = arpSettings; // Sync ref
   }, [arpSettings]);
 
   useEffect(() => {
@@ -618,6 +654,7 @@ const App: React.FC = () => {
         
         score={score}
         scorePopups={scorePopups}
+        activePoints={activePoints}
       />
     </div>
   );
