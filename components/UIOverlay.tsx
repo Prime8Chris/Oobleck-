@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch, DrumFX } from '../types';
 import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS, DRUM_FX_OPTIONS, GENRE_PRESETS } from '../constants';
-import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, ActivitySquare, Waves as WavesIcon, Triangle, BoxSelect, Save, Lock, Unlock } from 'lucide-react';
+import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, Activity as ActivityIcon, Waves as WavesIcon, Triangle, BoxSelect, Save, Lock, Unlock } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
 interface Props {
@@ -62,6 +62,10 @@ interface Props {
   // Chaos Lock
   isChaosLocked: boolean;
   onToggleChaosLock: () => void;
+  
+  // Score
+  score: number;
+  scorePopups: {id: number, val: number, label: string}[];
 }
 
 const FxButton = ({ label, active, onClick, icon: Icon, color }: { label: string, active: boolean, onClick: () => void, icon: any, color: string }) => {
@@ -127,6 +131,48 @@ const VolumeSlider = ({ value, onChange, vertical = false }: { value: number, on
     />
   </div>
 );
+
+// New Scoreboard Component
+const ScoreBoard = ({ score, popups }: { score: number, popups: {id: number, val: number, label: string}[] }) => {
+    return (
+        <div className="relative mt-2 bg-black/60 backdrop-blur rounded-xl border border-teal-500/30 p-2 w-[100px] flex flex-col items-end overflow-visible">
+            <span className="text-[8px] font-bold text-teal-500 uppercase tracking-widest mb-1 w-full text-left">SCORE</span>
+            <div className="font-mono text-xl font-black text-white drop-shadow-[0_0_8px_rgba(45,212,191,0.8)] tracking-tight">
+                {score.toLocaleString()}
+            </div>
+            
+            <div className="absolute top-0 right-0 w-full h-full pointer-events-none">
+                {popups.map(p => (
+                    <div key={p.id} className="absolute right-0 bottom-full mb-2 flex flex-col items-end animate-[float-score_1s_ease-out_forwards] whitespace-nowrap origin-bottom-right">
+                        <span className="text-yellow-400 font-black text-sm drop-shadow-md">+{p.val}</span>
+                        <span className="text-[8px] font-bold text-white/80 tracking-wider bg-black/50 px-1 rounded">{p.label}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+// Local Floating Score for Buttons
+const FloatingScore = ({ popups, filter }: { popups: {id: number, val: number, label: string}[], filter: string }) => {
+    const relevant = popups.filter(p => p.label === filter);
+    if (relevant.length === 0) return null;
+    
+    return (
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-50 overflow-visible">
+             {relevant.map(p => (
+                 <div key={p.id} className="absolute animate-[float-score_0.8s_ease-out_forwards] flex flex-col items-center">
+                     <span 
+                        className="text-yellow-300 font-black text-4xl drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)]"
+                        style={{ textShadow: '0 0 10px rgba(234, 179, 8, 0.5)' }}
+                     >
+                        +{p.val}
+                     </span>
+                 </div>
+             ))}
+        </div>
+    )
+}
 
 // Neon Thumbs Up SVG
 const NeonThumbsUp = ({ className }: { className?: string }) => (
@@ -221,7 +267,7 @@ const NeonLock = ({ className, isLocked }: { className?: string, isLocked: boole
 );
 
 // Vibrant OOBLECK Logo SVG
-const OobleckLogo = ({ onClick }: { onClick: () => void }) => (
+const OobleckLogo = ({ onClick, children }: { onClick: () => void, children?: React.ReactNode }) => (
   <div 
     className="cursor-pointer relative group w-64 h-64 select-none z-20" 
     onClick={onClick}
@@ -283,6 +329,7 @@ const OobleckLogo = ({ onClick }: { onClick: () => void }) => (
        </g>
     </svg>
     <div className="absolute inset-0 rounded-full bg-green-500/20 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+    {children}
   </div>
 );
 
@@ -324,7 +371,8 @@ const UIOverlay: React.FC<Props> = ({
   crossFader, onCrossFaderChange, onRevertPreset,
   onGrowl, currentGrowlName, onChop,
   userPatches, onLoadPatch, onBigSave, saveButtonText,
-  nextSaveSlotIndex, isChaosLocked, onToggleChaosLock
+  nextSaveSlotIndex, isChaosLocked, onToggleChaosLock,
+  score, scorePopups
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [hasRandomized, setHasRandomized] = useState(false);
@@ -574,6 +622,10 @@ const UIOverlay: React.FC<Props> = ({
             50% { transform: scale(2) rotate(0deg); }
             75% { transform: scale(2.1) rotate(2deg); }
         }
+        @keyframes float-score {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-30px) scale(1.2); }
+        }
       `}</style>
 
       {flyingThumb && (
@@ -607,6 +659,7 @@ const UIOverlay: React.FC<Props> = ({
                     <Scissors className="w-10 h-10 mb-2 animate-[snip_0.4s_ease-in-out_infinite] text-white drop-shadow-md" strokeWidth={3} />
                     <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">CHOP IT UP</span>
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(CLICK)</span>
+                    <FloatingScore popups={scorePopups} filter="CHOP" />
                 </button>
 
                 <button
@@ -625,6 +678,7 @@ const UIOverlay: React.FC<Props> = ({
                     <Skull className="w-10 h-10 mb-2 animate-[bounce_0.5s_infinite] text-white drop-shadow-md" strokeWidth={3} />
                     <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">GRRRR!</span>
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ALT)</span>
+                    <FloatingScore popups={scorePopups} filter="GRRRR!" />
                 </button>
 
                 <button
@@ -643,6 +697,7 @@ const UIOverlay: React.FC<Props> = ({
                     <RotateCcw className="w-10 h-10 mb-2 animate-[reverse-spin_1.5s_linear_infinite] text-white drop-shadow-md" strokeWidth={3} />
                     <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">RUN BACK</span>
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ESC)</span>
+                    <FloatingScore popups={scorePopups} filter="RUN BACK" />
                 </button>
 
                 <button
@@ -664,6 +719,7 @@ const UIOverlay: React.FC<Props> = ({
                         {isChaosLocked ? 'LOCKED' : 'CHAOS'}
                     </span>
                     <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(SPACE)</span>
+                    <FloatingScore popups={scorePopups} filter="CHAOS" />
                 </button>
             </div>
         </div>
@@ -671,7 +727,9 @@ const UIOverlay: React.FC<Props> = ({
 
       <div className="flex justify-between items-start pointer-events-auto">
         <div className="flex flex-col gap-4 relative ml-[15px]">
-          <OobleckLogo onClick={() => { if(!isChaosLocked) { onRandomize(); setHasRandomized(true); } }} />
+          <OobleckLogo onClick={() => { if(!isChaosLocked) { onRandomize(); setHasRandomized(true); } }}>
+              <FloatingScore popups={scorePopups} filter="LOOP" />
+          </OobleckLogo>
 
           {!hasRandomized && (
             <div className="absolute top-40 -right-4 flex items-center gap-2 animate-pulse pointer-events-none">
@@ -740,6 +798,7 @@ const UIOverlay: React.FC<Props> = ({
                 >
                     {saveButtonText}
                 </span>
+                <FloatingScore popups={scorePopups} filter="SAVED" />
             </button>
         </div>
 
@@ -828,8 +887,10 @@ const UIOverlay: React.FC<Props> = ({
                 <FxButton label="Distort" active={fxState.distortion} onClick={() => onToggleFx('distortion')} icon={Zap} color="orange" />
                 <FxButton label="Saturate" active={fxState.crunch} onClick={() => onToggleFx('crunch')} icon={Scissors} color="pink" />
                 <FxButton label="Phaser" active={fxState.phaser} onClick={() => onToggleFx('phaser')} icon={Disc} color="yellow" />
-                <FxButton label="HiPass" active={fxState.highpass} onClick={() => onToggleFx('highpass')} icon={Activity} color="emerald" />
+                <FxButton label="HiPass" active={fxState.highpass} onClick={() => onToggleFx('highpass')} icon={ActivityIcon} color="emerald" />
             </div>
+
+            <ScoreBoard score={score} popups={scorePopups} />
         </div>
       </div>
 
@@ -966,14 +1027,14 @@ const UIOverlay: React.FC<Props> = ({
 
                      <div className="flex gap-2 items-center justify-start mt-0.5">
                         <div className="flex items-center gap-1.5 bg-zinc-800/50 rounded-sm px-1 py-0.5 border border-zinc-700/50 w-20">
-                             <span className="text-[7px] font-bold text-pink-500">DRM</span>
+                             <span className="text-[7px] font-bold text-pink-500 min-w-0 flex-shrink-0">DRM</span>
                              <input 
                                 type="range" min="0" max="1" step="0.01"
                                 value={crossFader}
                                 onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))}
                                 className="flex-1 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize min-w-0"
                              />
-                             <span className="text-[7px] font-bold text-teal-500">SYN</span>
+                             <span className="text-[7px] font-bold text-teal-500 min-w-0 flex-shrink-0">SYN</span>
                          </div>
                          <select 
                             value={drumSettings.kit} 
@@ -1042,35 +1103,47 @@ const UIOverlay: React.FC<Props> = ({
             <div className="col-span-2 p-2 flex flex-col justify-between">
                  <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
                      <div className="flex items-center gap-1 text-yellow-400">
-                         <ActivitySquare size={12} />
+                         <ActivityIcon size={12} />
                          <span className="text-[9px] font-black uppercase tracking-widest font-mono">SYNTH</span>
                      </div>
                  </div>
                  
                  <div className="flex flex-col h-full justify-between pt-1 gap-1">
-                     <div className="flex gap-2">
-                        {[1, 2].map(num => {
+                     <div className="flex flex-col gap-1">
+                        {[1, 2, 3].map(num => {
                             const oscKey = `osc${num}Type` as keyof typeof currentPreset.audio;
                             const type = currentPreset.audio[oscKey] as string;
-                            const Icon = type === 'sine' ? WavesIcon : type === 'square' ? Square : type === 'triangle' ? Triangle : Activity;
+                            const volKey = `osc${num}Vol` as keyof typeof currentPreset.audio;
+                            const vol = (currentPreset.audio[volKey] as number) || 0.5;
+
+                            const Icon = type === 'sine' ? WavesIcon : type === 'square' ? Square : type === 'triangle' ? Triangle : type === 'sawtooth' ? ActivityIcon : ActivityIcon;
                             
                             return (
-                                <div key={num} className="flex-1 bg-black border border-zinc-700 rounded-sm p-1 flex flex-col items-center">
-                                    <span className="text-[6px] text-zinc-500 font-bold uppercase mb-1">OSC {num}</span>
+                                <div key={num} className="flex items-center gap-1 bg-black border border-zinc-700 rounded-sm p-0.5 h-6">
+                                    <span className="text-[5px] text-zinc-500 font-bold uppercase w-6">OSC {num}</span>
                                     <button 
                                         onClick={() => {
-                                            const types = ['sine', 'square', 'sawtooth', 'triangle'];
+                                            let types = ['sine', 'sawtooth', 'supersaw', 'square', 'noise', 'noisy_sub'];
+                                            if (num === 3) types = ['sine', 'white', 'pink', 'brown'];
+                                            
                                             const idx = types.indexOf(type);
-                                            const nextType = types[(idx + 1) % 4];
+                                            const nextType = types[(idx + 1) % types.length];
                                             onPresetChange({
                                                 ...currentPreset,
                                                 audio: { ...currentPreset.audio, [oscKey]: nextType }
                                             });
                                         }}
-                                        className="text-yellow-500 hover:text-yellow-300 transition-colors"
+                                        className="text-yellow-500 hover:text-yellow-300 transition-colors flex-1 flex justify-center"
+                                        title={type}
                                     >
-                                        <Icon size={14} />
+                                        <Icon size={10} />
                                     </button>
+                                    <div className="w-8 h-full py-0.5">
+                                        <VolumeSlider value={vol} onChange={(v) => onPresetChange({
+                                            ...currentPreset,
+                                            audio: { ...currentPreset.audio, [volKey]: v }
+                                        })} />
+                                    </div>
                                 </div>
                             );
                         })}

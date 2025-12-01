@@ -30,6 +30,20 @@ const App: React.FC = () => {
   const [currentGrowlName, setCurrentGrowlName] = useState<string | null>(null);
   const [isChaosLocked, setIsChaosLocked] = useState(false);
 
+  // SCORING STATE
+  const [score, setScore] = useState(0);
+  const [scorePopups, setScorePopups] = useState<{id: number, val: number, label: string}[]>([]);
+
+  const addScore = useCallback((amount: number, label: string) => {
+      setScore(s => s + amount);
+      const id = Date.now() + Math.random();
+      setScorePopups(prev => [...prev, { id, val: amount, label }]);
+      // Cleanup popup after animation
+      setTimeout(() => {
+          setScorePopups(prev => prev.filter(p => p.id !== id));
+      }, 1000);
+  }, []);
+
   const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
   const defaultArp: ArpSettings = { enabled: false, bpm: 86, division: '1/8', mode: 'UP', octaveRange: 1, gate: 0.5, steps: 1 };
   const defaultDrums: DrumSettings = { enabled: false, volume: 1.0, genre: 'BOOMBAP', kit: 'ACOUSTIC', fx: 'DRY', pattern: GENRE_PRESETS['BOOMBAP'].pattern };
@@ -219,6 +233,7 @@ const App: React.FC = () => {
 
 
   const handleRevertPreset = useCallback(() => {
+      addScore(150, "RUN BACK");
       if (previousPreset) {
           const tempPreset = preset;
           const tempFx = fxState;
@@ -247,10 +262,12 @@ const App: React.FC = () => {
           if (audioEngineRef.current) audioEngineRef.current.cancelGrowl();
       }
       setCurrentGrowlName(null);
-  }, [previousPreset, preset, fxState, drumSettings, gateSettings]);
+  }, [previousPreset, preset, fxState, drumSettings, gateSettings, addScore]);
 
   const handleRandomize = useCallback(() => {
     if (isChaosLocked) return;
+    
+    addScore(1000, "CHAOS");
 
     setPreviousPreset(preset);
     setPreviousFxState(fxState);
@@ -295,7 +312,7 @@ const App: React.FC = () => {
         setDrumSettings(prev => ({ ...prev, enabled: true }));
     }
 
-  }, [preset, fxState, drumSettings, gateSettings, isChaosLocked]);
+  }, [preset, fxState, drumSettings, gateSettings, isChaosLocked, addScore]);
 
   const executeDropRevert = useCallback((type: 'GROWL' | 'CHOP') => {
       if (audioEngineRef.current) {
@@ -332,6 +349,8 @@ const App: React.FC = () => {
   }, [gateSettings]);
 
   const handleGrowl = useCallback(() => {
+      addScore(500, "GRRRR!");
+      
       // SNAPSHOT CURRENT STATE
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
@@ -365,9 +384,10 @@ const App: React.FC = () => {
               executeDropRevert('GROWL');
           }, 1000);
       }
-  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert]);
+  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore]);
 
   const handleChop = useCallback(() => {
+      addScore(250, "CHOP");
       // SNAPSHOT CURRENT STATE
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
@@ -390,9 +410,14 @@ const App: React.FC = () => {
                executeDropRevert('CHOP');
           }, 1000);
       }
-  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert]);
+  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore]);
 
   useEffect(() => {
+      // Loop Completion Score
+      if (currentStep === 0 && drumSettings.enabled && playState === PlayState.PLAYING) {
+          addScore(100, "LOOP");
+      }
+
       if (waitingForDropRef.current && drumSettings.enabled) {
           const pattern = drumSettings.pattern;
           const stepData = pattern[currentStep] || { kick: false, snare: false };
@@ -403,10 +428,11 @@ const App: React.FC = () => {
               }
           }
       }
-  }, [currentStep, drumSettings, executeDropRevert]);
+  }, [currentStep, drumSettings, executeDropRevert, playState, addScore]);
 
 
   const handleBigSave = useCallback(() => {
+      addScore(2000, "SAVED");
       const label = `${SLANG_TERMS[currentSlangIndex]} (${saveSlotIndex === 9 ? 0 : saveSlotIndex + 1})`;
       
       const patch: UserPatch = {
@@ -430,7 +456,7 @@ const App: React.FC = () => {
       setCurrentSlangIndex(prev => (prev + 1) % SLANG_TERMS.length);
       setSaveSlotIndex(prev => (prev + 1) % 10);
       
-  }, [preset, fxState, drumSettings, arpSettings, octave, saveSlotIndex, currentSlangIndex]);
+  }, [preset, fxState, drumSettings, arpSettings, octave, saveSlotIndex, currentSlangIndex, addScore]);
 
   const handleLoadPatch = useCallback((patch: UserPatch) => {
       const wasDrumming = drumSettings.enabled;
@@ -447,9 +473,6 @@ const App: React.FC = () => {
       const newDrums = { ...patch.drumSettings, enabled: wasDrumming || patch.drumSettings.enabled };
       setDrumSettings(newDrums);
       
-      // Keep gate independent
-      // setGateSettings(patch.gateSettings); 
-      
       setArpSettings(patch.arpSettings);
       setOctave(patch.octave);
       
@@ -457,7 +480,6 @@ const App: React.FC = () => {
           audioEngineRef.current.setParams(patch.preset.audio);
           audioEngineRef.current.setFx(patch.fxState);
           audioEngineRef.current.setDrumSettings(newDrums);
-          // audioEngineRef.current.setGateSettings(patch.gateSettings);
           audioEngineRef.current.setArpSettings(patch.arpSettings);
           audioEngineRef.current.setOctave(patch.octave);
       }
@@ -538,11 +560,15 @@ const App: React.FC = () => {
         octave={octave}
         onOctaveChange={setOctave}
         fxState={fxState}
-        onToggleFx={(k) => setFxState(prev => ({ ...prev, [k]: !prev[k] }))}
+        onToggleFx={(k) => {
+            setFxState(prev => ({ ...prev, [k]: !prev[k] }));
+            addScore(50, "FX");
+        }}
         onNotePlay={(f) => {
             if(audioEngineRef.current) {
                 audioEngineRef.current.setParams({...preset.audio, baseFreq: f});
                 audioEngineRef.current.trigger();
+                addScore(10, "NOTE");
             }
         }}
         arpSettings={arpSettings}
@@ -589,6 +615,9 @@ const App: React.FC = () => {
         nextSaveSlotIndex={saveSlotIndex}
         isChaosLocked={isChaosLocked}
         onToggleChaosLock={() => setIsChaosLocked(!isChaosLocked)}
+        
+        score={score}
+        scorePopups={scorePopups}
       />
     </div>
   );
