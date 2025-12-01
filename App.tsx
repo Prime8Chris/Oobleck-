@@ -35,7 +35,6 @@ const App: React.FC = () => {
   const [scorePopups, setScorePopups] = useState<{id: number, val: number, label: string}[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [showHighScoreInput, setShowHighScoreInput] = useState(false);
-  const [hasEnteredName, setHasEnteredName] = useState(false);
   
   // Sound Active Points (Flying from mouse to bank)
   const [activePoints, setActivePoints] = useState<{id: number, x: number, y: number, val: number}[]>([]);
@@ -59,46 +58,6 @@ const App: React.FC = () => {
           console.error("Failed to load leaderboard", e);
       }
   }, []);
-
-  const addScore = useCallback((amount: number, label: string) => {
-      setScore(s => {
-          const newScore = s + amount;
-          
-          // Check for high score
-          if (!hasEnteredName) {
-              const lowestTopScore = leaderboard.length < 3 ? 0 : leaderboard[leaderboard.length - 1].score;
-              if (newScore > lowestTopScore && !showHighScoreInput) {
-                  setShowHighScoreInput(true);
-                  if (audioEngineRef.current) audioEngineRef.current.triggerVictory();
-              }
-          }
-          return newScore;
-      });
-      
-      const id = Date.now() + Math.random();
-      setScorePopups(prev => [...prev, { id, val: amount, label }]);
-      setTimeout(() => {
-          setScorePopups(prev => prev.filter(p => p.id !== id));
-      }, 1000);
-  }, [leaderboard, hasEnteredName, showHighScoreInput]);
-
-  const handleNameSubmit = (name: string) => {
-      const newEntry: LeaderboardEntry = {
-          name: name.substring(0, 8).toUpperCase(),
-          score: score,
-          date: new Date().toLocaleDateString()
-      };
-      
-      const newBoard = [...leaderboard, newEntry]
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 3);
-          
-      setLeaderboard(newBoard);
-      localStorage.setItem('oobleck_leaderboard', JSON.stringify(newBoard));
-      
-      setShowHighScoreInput(false);
-      setHasEnteredName(true);
-  };
 
   const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
   const defaultArp: ArpSettings = { enabled: false, bpm: 86, division: '1/8', mode: 'UP', octaveRange: 1, gate: 0.5, steps: 1 };
@@ -141,8 +100,10 @@ const App: React.FC = () => {
   const [drumSettings, setDrumSettings] = useState<DrumSettings>(defaultDrums);
   const [gateSettings, setGateSettings] = useState<GateSettings>(defaultGate);
 
-  // Ref to track BPM in the sync loop without closure stale state
+  // Refs to track state in sync loop without closures
   const arpSettingsRef = useRef(arpSettings);
+  const drumSettingsRef = useRef(drumSettings);
+  const prevDrumEnabledRef = useRef(defaultDrums.enabled);
 
   const baselineGateDivision = useRef<GateDivision>('1/32');
   
@@ -157,6 +118,54 @@ const App: React.FC = () => {
   const audioEngineRef = useRef<AudioEngine | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const wasSoundingRef = useRef(false);
+
+  // --- SCORING LOGIC ---
+  const addScore = useCallback((amount: number, label: string) => {
+      // Only tally score if rhythm is playing
+      if (!drumSettings.enabled) return;
+
+      setScore(s => s + amount);
+      
+      const id = Date.now() + Math.random();
+      setScorePopups(prev => [...prev, { id, val: amount, label }]);
+      setTimeout(() => {
+          setScorePopups(prev => prev.filter(p => p.id !== id));
+      }, 1000);
+  }, [drumSettings.enabled]);
+
+  // Rhythm Stop / Finalize Score Logic
+  useEffect(() => {
+      if (prevDrumEnabledRef.current && !drumSettings.enabled) {
+          // Rhythm just stopped: Finalize Score
+          const lowestTopScore = leaderboard.length < 3 ? 0 : leaderboard[leaderboard.length - 1].score;
+          
+          if (score > lowestTopScore && score > 0) {
+              setShowHighScoreInput(true);
+              if (audioEngineRef.current) audioEngineRef.current.triggerVictory();
+          } else {
+              setScore(0); // Reset immediately if no high score
+          }
+      }
+      prevDrumEnabledRef.current = drumSettings.enabled;
+  }, [drumSettings.enabled, score, leaderboard]);
+
+  const handleNameSubmit = (name: string) => {
+      const newEntry: LeaderboardEntry = {
+          name: name.substring(0, 8).toUpperCase(),
+          score: score,
+          date: new Date().toLocaleDateString()
+      };
+      
+      const newBoard = [...leaderboard, newEntry]
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3);
+          
+      setLeaderboard(newBoard);
+      localStorage.setItem('oobleck_leaderboard', JSON.stringify(newBoard));
+      
+      setShowHighScoreInput(false);
+      setScore(0); // Reset score after entering name
+  };
 
   useEffect(() => {
       try {
@@ -177,8 +186,8 @@ const App: React.FC = () => {
             setCurrentStep(audioEngineRef.current.getCurrentStep());
         }
         
-        // Sound Active Scoring Loop
-        if (wasSoundingRef.current) {
+        // Sound Active Scoring Loop (Only if drums are enabled)
+        if (wasSoundingRef.current && drumSettingsRef.current.enabled) {
             const now = Date.now();
             const bpm = arpSettingsRef.current.bpm || 120;
             const msPer32nd = (60000 / bpm) / 8;
@@ -243,6 +252,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (audioEngineRef.current) audioEngineRef.current.setDrumSettings(drumSettings);
+    drumSettingsRef.current = drumSettings; // Sync ref
   }, [drumSettings]);
 
   useEffect(() => {
@@ -341,7 +351,6 @@ const App: React.FC = () => {
              audioEngineRef.current.cancelGrowl(); 
           }
       } else {
-          // If no history, just ensure we aren't stuck
           if (audioEngineRef.current) audioEngineRef.current.cancelGrowl();
       }
       setCurrentGrowlName(null);
@@ -404,22 +413,17 @@ const App: React.FC = () => {
       
       let targetGate = preGrowlGateSettings.current;
       
-      // RESTORE SYNTH & FX from SNAPSHOT (Fixes "Reverting to previous/history" bug)
-      // Done for both GROWL and CHOP to ensure clean state
       if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
       if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
       
       if (type === 'GROWL') {
-          setActiveVisualEffect(null); // Clear growl visual
+          setActiveVisualEffect(null); 
       }
       
-      // Fallback if gate was somehow unset
       if (!targetGate) {
-          // Default behavior for drop fallback only if null
           targetGate = { ...gateSettings, enabled: true, division: '1/32' };
       }
       
-      // Force imperative update to prevent race conditions
       if (audioEngineRef.current && targetGate) {
           audioEngineRef.current.setGateSettings(targetGate);
       }
@@ -434,7 +438,6 @@ const App: React.FC = () => {
   const handleGrowl = useCallback(() => {
       addScore(500, "GRRRR!");
       
-      // SNAPSHOT CURRENT STATE
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
       preGrowlFxState.current = fxState;
@@ -447,13 +450,11 @@ const App: React.FC = () => {
       
       setCurrentGrowlName(names[Math.floor(Math.random() * names.length)]);
       
-      // Trigger Visual Glitch
       const randomVisual = Math.floor(Math.random() * 5);
       setActiveVisualEffect(randomVisual);
 
       if (audioEngineRef.current) {
           audioEngineRef.current.triggerGrowl(engineGrowlId);
-          // Instant imperative update
           audioEngineRef.current.setGateSettings({...gateSettings, enabled: false});
       }
       
@@ -462,7 +463,6 @@ const App: React.FC = () => {
       if (drumSettings.enabled) {
           waitingForDropRef.current = true;
       } else {
-          // Fallback if no drums: Revert after 1s using SNAPSHOT logic (not handleRevertPreset)
           setTimeout(() => {
               executeDropRevert('GROWL');
           }, 1000);
@@ -471,7 +471,6 @@ const App: React.FC = () => {
 
   const handleChop = useCallback(() => {
       addScore(250, "CHOP");
-      // SNAPSHOT CURRENT STATE
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
       preGrowlFxState.current = fxState;
@@ -496,7 +495,6 @@ const App: React.FC = () => {
   }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore]);
 
   useEffect(() => {
-      // Loop Completion Score
       if (currentStep === 0 && drumSettings.enabled && playState === PlayState.PLAYING) {
           addScore(100, "LOOP");
       }
@@ -543,7 +541,6 @@ const App: React.FC = () => {
 
   const handleLoadPatch = useCallback((patch: UserPatch) => {
       const wasDrumming = drumSettings.enabled;
-      const wasGateEnabled = gateSettings.enabled;
 
       setPreviousPreset(preset);
       setPreviousFxState(fxState);
@@ -586,7 +583,6 @@ const App: React.FC = () => {
               if(audioEngineRef.current) audioEngineRef.current.setDrumSettings({...drumSettings, enabled: true});
           }
       } else if (zoneIdx === 3) { 
-          // STRICT CHAOS LOCK GUARD
           if (!isChaosLocked) {
               handleRandomize();
           }
@@ -597,6 +593,11 @@ const App: React.FC = () => {
       setGateSettings(s);
       baselineGateDivision.current = s.division;
   };
+  
+  // Safe toggle for race conditions
+  const handleToggleDrums = useCallback(() => {
+      setDrumSettings(prev => ({ ...prev, enabled: !prev.enabled }));
+  }, []);
 
 
   return (
@@ -659,6 +660,7 @@ const App: React.FC = () => {
         onScaleFrequenciesChange={(freqs) => audioEngineRef.current?.setScaleFrequencies(freqs)}
         drumSettings={drumSettings}
         onDrumChange={setDrumSettings}
+        onToggleDrums={handleToggleDrums}
         currentStep={currentStep}
         gateSettings={gateSettings}
         onGateChange={handleManualGateChange}

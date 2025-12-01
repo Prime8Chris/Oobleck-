@@ -26,6 +26,7 @@ interface Props {
 
   drumSettings: DrumSettings;
   onDrumChange: (s: DrumSettings) => void;
+  onToggleDrums: () => void;
   currentStep: number;
 
   gateSettings: GateSettings;
@@ -203,7 +204,6 @@ const FloatingScore: React.FC<{ popups: {id: number, val: number, label: string}
 // Sound Active Flying Point
 const FlyingPoint: React.FC<{ startX: number, startY: number, val: number }> = ({ startX, startY, val }) => {
     // Approximate target position of the scoreboard (Right sidebar)
-    // Dynamic calculation would be better but this works for 99% of cases
     const targetX = window.innerWidth - 60; 
     const targetY = 300; 
 
@@ -412,7 +412,7 @@ const UIOverlay: React.FC<Props> = ({
   currentPreset, onPresetChange, playState, setPlayState, 
   onGenerateStart, isRecording, onToggleRecord, octave, onOctaveChange,
   fxState, onToggleFx, onNotePlay, arpSettings, onArpChange, onScaleFrequenciesChange,
-  drumSettings, onDrumChange, currentStep, gateSettings, onGateChange,
+  drumSettings, onDrumChange, onToggleDrums, currentStep, gateSettings, onGateChange,
   synthVolume, onSynthVolumeChange,
   favorites, onSaveFavorite, onDeleteFavorite,
   isCameraActive, onToggleCamera, isSounding, onRandomize,
@@ -500,7 +500,6 @@ const UIOverlay: React.FC<Props> = ({
     
     if (e.code === 'Space') {
         e.preventDefault();
-        // UNLOCK if locked
         if (isChaosLocked) {
             onToggleChaosLock();
             return;
@@ -527,10 +526,12 @@ const UIOverlay: React.FC<Props> = ({
     }
 
     if (e.key === 'Enter') {
+        e.preventDefault(); // Stop focused buttons from clicking
+        e.stopPropagation();
         if (playState === PlayState.IDLE) {
             setPlayState(PlayState.PLAYING);
         } else {
-            onDrumChange({ ...drumSettings, enabled: !drumSettings.enabled });
+            onToggleDrums();
         }
         return;
     }
@@ -587,7 +588,7 @@ const UIOverlay: React.FC<Props> = ({
         return;
     }
     if (e.key.toLowerCase() === 'o') {
-        onDrumChange({ ...drumSettings, enabled: !drumSettings.enabled });
+        onToggleDrums();
         return;
     }
     if (e.key.toLowerCase() === 'p') {
@@ -613,7 +614,7 @@ const UIOverlay: React.FC<Props> = ({
       onNotePlay(freq);
       setActiveMouseNote(semitone);
     }
-  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl, userPatches, onLoadPatch, isChaosLocked, onToggleChaosLock]);
+  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl, userPatches, onLoadPatch, isChaosLocked, onToggleChaosLock, onToggleDrums]);
 
   const handleKeyUp = useCallback((e: any) => {
       if (e.code === 'Space') setIsSpacePressed(false);
@@ -1058,7 +1059,7 @@ const UIOverlay: React.FC<Props> = ({
                          <span className="text-[9px] font-black uppercase tracking-widest font-mono">RHYTHM</span>
                      </div>
                      <button 
-                        onClick={() => onDrumChange({...drumSettings, enabled: !drumSettings.enabled})}
+                        onClick={onToggleDrums}
                         className={`w-6 h-3 rounded transition-colors border border-black/30 ${drumSettings.enabled ? 'bg-pink-600 shadow-[0_0_8px_rgba(236,72,153,0.6)]' : 'bg-zinc-700'}`}
                      >
                          <div className={`w-1.5 h-full bg-white/80 transition-transform ${drumSettings.enabled ? 'translate-x-3' : ''}`} />
