@@ -5,14 +5,20 @@ Oobleck is an interactive, browser-based audio synthesizer that translates physi
 ## 🌊 Features
 
 *   **Physics-Based Synthesis:** Velocity and "hardness" modulate filter cutoff, distortion, and FM synthesis in real-time.
-*   **Generative Patching:** "Chaos Mode" instantly generates unique patches with randomized oscillators, physics, and visuals.
+*   **Generative Patching:** "Chaos Mode" instantly generates unique patches with randomized oscillators, physics, and visuals, powered by Google Gemini.
 *   **Motion Control:** Integrated webcam tracking divides the air into 4 interactive zones for hands-free FX triggering and modulation.
 *   **Visualizer:** GPU-accelerated particle system that simulates fluid dynamics, complete with particle trails, glow, and reactive camera shake.
 *   **Rhythm Engine:** 4-track step sequencer with genre-specific presets (Boom Bap, House, Trap, Dubstep, Metal) and multiple drum kits (808, 909, Acoustic, Industrial).
+*   **Gamification:**
+    *   **Score System:** Earn points for rhythm precision, chaos triggering, and exploring FX.
+    *   **Leaderboard:** Compete for the top 3 spots on the local high score board.
+*   **Patch Management:**
+    *   **"The Big Save":** Save your chaotic creations into 10 user slots (`1`-`0`).
+    *   **Chaos Lock:** Lock the randomizer to prevent accidental patch loss during performance.
 *   **Performance Tools:**
-    *   **"GRRRR!" Button:** Instant bass growl fills and drops.
-    *   **"Chop It Up":** Instant 1/64th note gating effects.
-    *   **"Run It Back":** Instant state revert/undo for live performance transitions.
+    *   **"GRRRR!" Button:** Instant bass growl fills and drops with visual glitches.
+    *   **"Chop It Up":** Instant 1/64th note gating effects for stutter transitions.
+    *   **"Run Back":** Instant state revert/undo for live performance transitions.
 
 ## 🚀 Getting Started
 
@@ -49,26 +55,30 @@ Oobleck is an interactive, browser-based audio synthesizer that translates physi
 
 ### Mouse / Touch
 *   **Move:** Modulate pitch, filter, and harmonic spread.
-*   **Click:** Trigger "strike" hardness (distortion boost).
+*   **Click:** Trigger "strike" hardness (distortion boost) and transient effects.
 
 ### Keyboard Shortcuts
-*   **Space Bar:** Chaos Mode (Randomize)
-*   **Alt:** Trigger Growl
-*   **Esc:** Run It Back (Undo/Revert)
-*   **Enter:** Start / Toggle Drums
-*   **\ (Backslash):** Toggle Camera
 
-**Performance & Mixing:**
-*   **Q / W / E / R / T:** Gate Speed (1/64, 1/32, 1/16, 1/8, 1/4)
-*   **U / I / O:** Toggle Arp / Gate / Drums
-*   **[ / ]:** Master Volume Down / Up
-*   **Arrow Left / Right:** Crossfade Drums vs Synth
-*   **Arrow Up / Down:** Octave Shift
+| Key | Action |
+| :--- | :--- |
+| **Space** | Chaos Mode (Randomize) |
+| **Alt** | Trigger Growl ("GRRRR!") |
+| **Esc** | Run Back (Undo/Revert) |
+| **Enter** | Start / Toggle Drums |
+| **\\** | Toggle Camera |
+| **P** | Toggle Audio Recording (.webm) |
+| **Z - M** | Play Synth Notes (Chromatic/Scale mapped) |
+| **1 - 0** | Load User Patches |
+| **Q / W / E / R / T** | Gate Speed (1/64 - 1/4) |
+| **U / I / O** | Toggle Arp / Gate / Drums |
+| **[ / ]** | Master Volume Down / Up |
+| **Arrow Left / Right** | Crossfade (Drums vs Synth) |
+| **Arrow Up / Down** | Octave Shift |
 
 ### Webcam Zones
 *   **Top Left:** Chop It Up (Gate 1/64)
 *   **Top Right:** Grrrr! (Growl Fill)
-*   **Bottom Left:** Run It Back (Undo)
+*   **Bottom Left:** Run Back (Undo)
 *   **Bottom Right:** Chaos Mode
 
 ## 🛠️ Architecture
