@@ -1,6 +1,5 @@
-
 import React, { useRef, useEffect, useState } from 'react';
-import { Grid2X2 } from 'lucide-react';
+import { Camera, Activity } from 'lucide-react';
 
 interface Props {
     isActive: boolean;
@@ -19,7 +18,7 @@ interface Props {
 const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const tempCanvasRef = useRef<HTMLCanvasElement>(null); // For Mosaic scaling
+    const tempCanvasRef = useRef<HTMLCanvasElement>(null); 
     const streamRef = useRef<MediaStream | null>(null);
     const requestRef = useRef<number | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -27,56 +26,35 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
     const [uiActiveZones, setUiActiveZones] = useState<boolean[]>([false, false, false, false]);
     const [uiZoneEnergy, setUiZoneEnergy] = useState<number[]>([0, 0, 0, 0]);
     
-    // Logic Refs
     const zoneCooldowns = useRef<number[]>([0, 0, 0, 0]);
-    const lastGlobalTriggerTime = useRef<number>(0); // Global cooldown to prevent burst triggers
+    const lastGlobalTriggerTime = useRef<number>(0); 
     const activeZones = useRef<boolean[]>([false, false, false, false]);
-    
-    // Zone Energy for smoother triggering
     const zoneEnergy = useRef<number[]>([0, 0, 0, 0]); 
-    
-    // Centroid tracking for Motion Vectors
     const prevCentroid = useRef<{x: number, y: number} | null>(null);
-    // Smooth position tracking to prevent jitter
     const smoothPos = useRef<{x: number, y: number} | null>(null);
-
     const effectRotationRef = useRef<number>(0);
     const prevFrameDataRef = useRef<Uint8ClampedArray | null>(null);
     const lastUiUpdateRef = useRef<number>(0);
-    
-    // Per-Zone Adaptive Light Sensitivity
     const prevZoneBrightnessRef = useRef<number[]>([128, 128, 128, 128]);
 
-    // REF PATTERN FOR CALLBACK: Fixes stale closure in RAF loop
     const onZoneTriggerRef = useRef(onZoneTrigger);
-    useEffect(() => {
-        onZoneTriggerRef.current = onZoneTrigger;
-    }, [onZoneTrigger]);
+    useEffect(() => { onZoneTriggerRef.current = onZoneTrigger; }, [onZoneTrigger]);
 
     useEffect(() => {
-        if (isActive) {
-            startWebcam();
-        } else {
-            stopWebcam();
-            setMotionLevel(0);
-            setUiZoneEnergy([0,0,0,0]);
-        }
+        if (isActive) { startWebcam(); } else { stopWebcam(); setMotionLevel(0); setUiZoneEnergy([0,0,0,0]); }
         return () => stopWebcam();
     }, [isActive]);
 
     useEffect(() => {
         if (!isActive) return;
-        const interval = setInterval(() => {
-            effectRotationRef.current = (effectRotationRef.current + 1) % 5;
-        }, 3000);
+        const interval = setInterval(() => { effectRotationRef.current = (effectRotationRef.current + 1) % 5; }, 3000);
         return () => clearInterval(interval);
     }, [isActive]);
 
-    // Initialize temp canvas for effects
     useEffect(() => {
         if (!tempCanvasRef.current) {
             tempCanvasRef.current = document.createElement('canvas');
-            tempCanvasRef.current.width = 4; // Tiny resolution for mosaic
+            tempCanvasRef.current.width = 4;
             tempCanvasRef.current.height = 3;
         }
     }, []);
@@ -84,11 +62,7 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
     const startWebcam = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { 
-                    width: { ideal: 320 }, 
-                    height: { ideal: 240 },
-                    facingMode: "user"
-                } 
+                video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" } 
             });
             streamRef.current = stream;
             if (videoRef.current) {
@@ -101,26 +75,19 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
             setError(null);
         } catch (err) {
             console.error("Error accessing webcam:", err);
-            setError("Could not access camera. Please verify permissions.");
+            setError("Could not access camera.");
         }
     };
 
     const stopWebcam = () => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-        if (requestRef.current) {
-            cancelAnimationFrame(requestRef.current);
-        }
+        if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
+        if (requestRef.current) { cancelAnimationFrame(requestRef.current); }
     };
 
     const processFrame = (timestamp: number) => {
         if (!isActive || !videoRef.current || !canvasRef.current) return;
-
         const video = videoRef.current;
         const canvas = canvasRef.current;
-        // Optimization: Use willReadFrequently to hint browser for readback
         const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
         
         if (!ctx || video.readyState !== 4 || video.videoWidth === 0) {
@@ -128,231 +95,118 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
             return;
         }
 
-        // Fixed low resolution for processing efficiency
         const width = 64; 
         const height = 48;
-        const midX = width / 2;  // 32
-        const midY = height / 2; // 24
-        
+        const midX = width / 2;
+        const midY = height / 2;
         const vW = video.videoWidth;
         const vH = video.videoHeight;
 
-        if (canvas.width !== width) {
-            canvas.width = width;
-            canvas.height = height;
-        }
+        if (canvas.width !== width) { canvas.width = width; canvas.height = height; }
 
-        // 1. Draw Base Video (Hardware Accelerated)
-        // We mirror the context to make interaction intuitive
-        ctx.save();
-        ctx.scale(-1, 1);
-        ctx.filter = 'none';
-        ctx.drawImage(video, -width, 0, width, height);
-        ctx.restore();
+        ctx.save(); ctx.scale(-1, 1); ctx.filter = 'none'; ctx.drawImage(video, -width, 0, width, height); ctx.restore();
         
-        // 2. Read Pixels ONCE for Analysis
         const imageData = ctx.getImageData(0, 0, width, height);
         const data = imageData.data;
         const len = data.length;
 
-        // --- MOTION ANALYSIS ---
-        let sumX = 0;
-        let sumY = 0;
-        let changedPixelCount = 0;
+        let sumX = 0; let sumY = 0; let changedPixelCount = 0;
         const zoneActivity = [0, 0, 0, 0];
-        
-        // Stats for next frame adaptation
         const nextZoneSums = [0, 0, 0, 0];
         const nextZoneCounts = [0, 0, 0, 0];
-
         const prevData = prevFrameDataRef.current;
         const currentZoneBrightness = prevZoneBrightnessRef.current;
 
-        // IMPROVEMENT: Stride 8 (Every 2nd pixel) for resolution
         for (let i = 0; i < len; i += 8) { 
-            const r = data[i];
-            const g = data[i+1];
-            const b = data[i+2];
-            
+            const r = data[i]; const g = data[i+1]; const b = data[i+2];
             const pixelIndex = i >>> 2;
-            const x = pixelIndex & 63; // pixelIndex % 64
-            const y = pixelIndex >> 6; // pixelIndex / 64
-            
+            const x = pixelIndex & 63; 
+            const y = pixelIndex >> 6; 
             const zoneIdx = (x >= midX ? 1 : 0) + (y >= midY ? 2 : 0);
             
             nextZoneSums[zoneIdx] += r + g + b;
             nextZoneCounts[zoneIdx]++;
 
             if (prevData) {
-                // PER-ZONE ADAPTIVE THRESHOLD
                 const zoneB = currentZoneBrightness[zoneIdx];
                 const normB = zoneB / 255;
-                
-                // Adaptive noise floor: higher threshold in bright light, lower in dark
                 const localThreshold = Math.max(12, Math.min(60, 10 + normB * 50));
-
-                const diff = 
-                    Math.abs(r - prevData[i]) + 
-                    Math.abs(g - prevData[i+1]) + 
-                    Math.abs(b - prevData[i+2]);
+                const diff = Math.abs(r - prevData[i]) + Math.abs(g - prevData[i+1]) + Math.abs(b - prevData[i+2]);
                 
                 if (diff > localThreshold) {
-                    sumX += x;
-                    sumY += y;
-                    changedPixelCount++;
-                    zoneActivity[zoneIdx]++;
+                    sumX += x; sumY += y; changedPixelCount++; zoneActivity[zoneIdx]++;
                 }
             }
         }
         
-        // Update Brightness Reference for next frame
-        for(let z=0; z<4; z++) {
-            if (nextZoneCounts[z] > 0) {
-                prevZoneBrightnessRef.current[z] = (nextZoneSums[z] / nextZoneCounts[z]) / 3;
-            }
-        }
+        for(let z=0; z<4; z++) { if (nextZoneCounts[z] > 0) prevZoneBrightnessRef.current[z] = (nextZoneSums[z] / nextZoneCounts[z]) / 3; }
 
-        // Cache current frame
-        if (!prevFrameDataRef.current) {
-            prevFrameDataRef.current = new Uint8ClampedArray(data);
-        } else {
-            prevFrameDataRef.current.set(data);
-        }
+        if (!prevFrameDataRef.current) prevFrameDataRef.current = new Uint8ClampedArray(data);
+        else prevFrameDataRef.current.set(data);
         
-        // Physics Update (Centroid & Vectors)
         if (changedPixelCount > 5) {
             const currentCentroidX = sumX / changedPixelCount;
             const currentCentroidY = sumY / changedPixelCount;
-            
             const screenX = (currentCentroidX / width) * window.innerWidth;
             const screenY = (currentCentroidY / height) * window.innerHeight;
-            
-            // SMOOTHING LOGIC
             if (!smoothPos.current) smoothPos.current = { x: screenX, y: screenY };
-            
-            // Density Factor: 0.0 to 1.0 (How "solid" is the object moving?)
-            // Max pixels approx 3000. 
             const density = Math.min(changedPixelCount / 400, 1.0);
-            
-            // Variable smoothing: High density (solid) = snappy (0.5), Low density (air) = smooth (0.1)
             const smoothFactor = 0.1 + (density * 0.4); 
-            
             smoothPos.current.x = smoothPos.current.x * (1 - smoothFactor) + screenX * smoothFactor;
             smoothPos.current.y = smoothPos.current.y * (1 - smoothFactor) + screenY * smoothFactor;
-            
-            // Update Global Input Ref
             inputRef.current.x = smoothPos.current.x;
             inputRef.current.y = smoothPos.current.y;
-            
-            // Calculate Velocity Vector manually to inject "Mass"
             if (prevCentroid.current) {
                 const dx = smoothPos.current.x - ((prevCentroid.current.x / width) * window.innerWidth);
                 const dy = smoothPos.current.y - ((prevCentroid.current.y / height) * window.innerHeight);
-                
-                // Inject Density into velocity to create "Hardness" in FluidCanvas
-                // FluidCanvas calculates hardness = speed * thickeningFactor.
-                // We boost speed artificially if the object is dense (lots of pixels).
                 const massMultiplier = 1 + (density * 2.0); 
-                
                 inputRef.current.vx = dx * 0.5 * massMultiplier;
                 inputRef.current.vy = dy * 0.5 * massMultiplier;
             }
-            
             prevCentroid.current = { x: currentCentroidX, y: currentCentroidY };
         } else {
-            // Decay
-            inputRef.current.vx *= 0.9;
-            inputRef.current.vy *= 0.9;
-            if (smoothPos.current) {
-                // Drift to center slowly if lost tracking
-                // smoothPos.current.x += (window.innerWidth/2 - smoothPos.current.x) * 0.01;
-                // smoothPos.current.y += (window.innerHeight/2 - smoothPos.current.y) * 0.01;
-            }
+            inputRef.current.vx *= 0.9; inputRef.current.vy *= 0.9;
         }
 
-        // --- TRIGGER LOGIC ---
         const zoneTriggerThreshold = 0.85; 
         const energyGain = 0.15; 
-        const energyDecay = 0.92; // Slower decay for smoother meters
-        
+        const energyDecay = 0.92; 
         let zonesChanged = false;
         
         for(let i=0; i<4; i++) {
             const zoneB = currentZoneBrightness[i];
-            
-            // ADAPTIVE SENSITIVITY BOOST
             const sensitivityBoost = Math.max(1.0, 3.5 - (zoneB / 50));
-            
             const zoneMaxPixels = 384; 
             const activityLevel = Math.min((zoneActivity[i] / (zoneMaxPixels * 0.05)) * sensitivityBoost, 2.0);
-            
             zoneEnergy.current[i] += activityLevel * energyGain;
-            
-            // Clamp Max Energy
             if (zoneEnergy.current[i] > 1.2) zoneEnergy.current[i] = 1.2;
 
-            // Trigger Check
-            if (zoneEnergy.current[i] > zoneTriggerThreshold && 
-                timestamp > zoneCooldowns.current[i] && 
-                timestamp > lastGlobalTriggerTime.current + 500) {
-                
+            if (zoneEnergy.current[i] > zoneTriggerThreshold && timestamp > zoneCooldowns.current[i] && timestamp > lastGlobalTriggerTime.current + 500) {
                 zoneCooldowns.current[i] = timestamp + 1500; 
                 lastGlobalTriggerTime.current = timestamp;
-                
                 activeZones.current[i] = true;
-                
-                // Smooth Release: Don't reset to 0, subtract chunk so it can re-trigger easier if movement sustains,
-                // but still requires a fresh "push"
                 zoneEnergy.current[i] -= 0.6; 
-
                 const effectIdx = (i + effectRotationRef.current) % 5;
-                
                 onZoneTriggerRef.current(i, effectIdx);
                 zonesChanged = true;
-                
-                setTimeout(() => { 
-                    activeZones.current[i] = false; 
-                    setUiActiveZones([...activeZones.current]);
-                }, 300);
+                setTimeout(() => { activeZones.current[i] = false; setUiActiveZones([...activeZones.current]); }, 300);
             }
-            
             zoneEnergy.current[i] *= energyDecay;
         }
 
-        // --- RENDER VISUAL EFFECTS ---
         const anyActive = activeZones.current.some(Boolean);
-
         if (anyActive) {
-            ctx.save();
-            ctx.scale(-1, 1); 
-            
+            ctx.save(); ctx.scale(-1, 1); 
             for (let z = 0; z < 4; z++) {
                 if (!activeZones.current[z]) continue;
-
-                const midX = width / 2;
-                const midY = height / 2;
-                const sy = Math.floor(z / 2) * midY;
-                const col = z % 2;
-                const destX = col === 0 ? -32 : -64;
-                
-                const scaleX = vW / width;
-                const scaleY = vH / height;
-                const sourceX = col === 0 ? 32 : 0;
-                const sX_vid = sourceX * scaleX;
-                const sY_vid = sy * scaleY;
-                const sW_vid = 32 * scaleX;
-                const sH_vid = 24 * scaleY;
-                const effectIdx = (z + effectRotationRef.current) % 5;
+                const midY = height / 2; const sy = Math.floor(z / 2) * midY; const col = z % 2; const destX = col === 0 ? -32 : -64;
+                const scaleX = vW / width; const scaleY = vH / height;
+                const sourceX = col === 0 ? 32 : 0; const sX_vid = sourceX * scaleX; const sY_vid = sy * scaleY;
+                const sW_vid = 32 * scaleX; const sH_vid = 24 * scaleY; const effectIdx = (z + effectRotationRef.current) % 5;
 
                 ctx.save();
-                if (effectIdx === 0) { 
-                    ctx.filter = 'invert(1)';
-                    ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24);
-                }
-                else if (effectIdx === 1) {
-                    ctx.filter = 'hue-rotate(180deg) saturate(300%)';
-                    ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24);
-                }
+                if (effectIdx === 0) { ctx.filter = 'invert(1)'; ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24); }
+                else if (effectIdx === 1) { ctx.filter = 'hue-rotate(180deg) saturate(300%)'; ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24); }
                 else if (effectIdx === 2) {
                     const tempCtx = tempCanvasRef.current?.getContext('2d');
                     if (tempCtx && tempCanvasRef.current) {
@@ -363,13 +217,9 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
                 }
                 else if (effectIdx === 3) {
                     ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24);
-                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                    for(let ly=0; ly<24; ly+=2) ctx.fillRect(destX, sy + ly, 32, 1);
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)'; for(let ly=0; ly<24; ly+=2) ctx.fillRect(destX, sy + ly, 32, 1);
                 }
-                else if (effectIdx === 4) {
-                    ctx.filter = 'contrast(200%) saturate(200%)';
-                    ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24);
-                }
+                else if (effectIdx === 4) { ctx.filter = 'contrast(200%) saturate(200%)'; ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24); }
                 ctx.restore();
             }
             ctx.restore();
@@ -387,43 +237,51 @@ const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) =>
     };
 
     return (
-        <div className={`absolute top-[18rem] left-[31px] z-20 transition-all duration-300 ${isActive ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'}`}>
-            <div className="relative rounded-xl overflow-hidden border border-white/10 shadow-[0_0_30px_rgba(45,212,191,0.2)] bg-black/80 backdrop-blur-sm w-64 h-48">
-                <video ref={videoRef} className="hidden" playsInline muted />
-                <canvas ref={canvasRef} className="w-full h-full object-cover" />
+        <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-[-12px] z-20 transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
+            <div className="relative rounded-xl overflow-hidden border-2 border-green-500/30 shadow-[0_0_50px_rgba(34,197,94,0.1)] bg-black/10 w-[486px] h-[365px] group">
                 
-                <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none">
-                    {/* Top Left */}
-                    <div className={`relative border-r border-b border-white/10 flex items-start justify-start p-1 transition-colors duration-200 ${uiActiveZones[0] ? 'bg-teal-500/20' : ''}`}>
-                         {/* Energy Meter Background */}
-                         <div className="absolute bottom-0 left-0 w-full bg-teal-500/10 transition-all duration-75" style={{ height: `${Math.min(uiZoneEnergy[0]*100, 100)}%` }} />
-                         <span className={`relative z-10 text-[8px] font-bold font-mono transition-colors ${uiActiveZones[0] ? 'text-teal-300' : 'text-gray-500'}`}>CHOP IT UP</span>
-                    </div>
-                    {/* Top Right */}
-                    <div className={`relative border-b border-white/10 flex items-start justify-end p-1 transition-colors duration-200 ${uiActiveZones[1] ? 'bg-red-500/20' : ''}`}>
-                        <div className="absolute bottom-0 left-0 w-full bg-red-500/10 transition-all duration-75" style={{ height: `${Math.min(uiZoneEnergy[1]*100, 100)}%` }} />
-                        <span className={`relative z-10 text-[8px] font-bold font-mono transition-colors ${uiActiveZones[1] ? 'text-red-300' : 'text-gray-500'}`}>GRRRR!</span>
-                    </div>
-                    {/* Bottom Left */}
-                    <div className={`relative border-r border-white/10 flex items-end justify-start p-1 transition-colors duration-200 ${uiActiveZones[2] ? 'bg-blue-500/20' : ''}`}>
-                         <div className="absolute bottom-0 left-0 w-full bg-blue-500/10 transition-all duration-75" style={{ height: `${Math.min(uiZoneEnergy[2]*100, 100)}%` }} />
-                         <span className={`relative z-10 text-[8px] font-bold font-mono transition-colors ${uiActiveZones[2] ? 'text-blue-300' : 'text-gray-500'}`}>RUN BACK</span>
-                    </div>
-                    {/* Bottom Right */}
-                    <div className={`relative flex items-end justify-end p-1 transition-colors duration-200 ${uiActiveZones[3] ? 'bg-purple-500/20' : ''}`}>
-                         <div className="absolute bottom-0 left-0 w-full bg-purple-500/10 transition-all duration-75" style={{ height: `${Math.min(uiZoneEnergy[3]*100, 100)}%` }} />
-                         <span className={`relative z-10 text-[8px] font-bold font-mono transition-colors ${uiActiveZones[3] ? 'text-purple-300' : 'text-gray-500'}`}>CHAOS</span>
-                    </div>
+                {/* Video & Canvas */}
+                <video ref={videoRef} className="hidden" playsInline muted />
+                <canvas ref={canvasRef} className="w-full h-full object-cover opacity-100" />
+                
+                {/* HUD Overlay Grid */}
+                <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none border border-green-500/20">
+                    {[0,1,2,3].map(i => (
+                         <div key={i} className={`
+                            relative border border-green-500/10 transition-colors duration-100
+                            ${uiActiveZones[i] ? 'bg-green-500/20' : ''}
+                         `}>
+                             {/* Energy Bar for Zone */}
+                             <div className={`
+                                absolute bottom-0 w-full bg-green-500 transition-all duration-75
+                                ${i % 2 === 0 ? 'left-0' : 'right-0'}
+                             `} style={{ height: '2px', width: `${Math.min(uiZoneEnergy[i]*100, 100)}%` }} />
+                         </div>
+                    ))}
                 </div>
 
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                    <Grid2X2 size={12} className="text-white/20" />
+                {/* Center Crosshair */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
+                    <div className="w-4 h-4 border border-green-500/50 rounded-full flex items-center justify-center">
+                        <div className="w-0.5 h-0.5 bg-green-500 rounded-full"></div>
+                    </div>
+                    <div className="absolute w-full h-px bg-green-500/20"></div>
+                    <div className="absolute h-full w-px bg-green-500/20"></div>
                 </div>
                 
                 {/* Global Motion Bar */}
-                <div className="absolute bottom-0 left-0 h-1 bg-teal-500 transition-all duration-100" style={{ width: `${motionLevel * 100}%` }} />
+                <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-green-500 to-emerald-300 transition-all duration-100 shadow-[0_0_5px_rgba(34,197,94,0.8)]" style={{ width: `${motionLevel * 100}%` }} />
+                
+                {/* Scanline */}
+                <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-10 background-size-[100%_2px,3px_100%] pointer-events-none opacity-20" />
             </div>
-            {error && <div className="absolute top-full mt-2 text-xs text-red-400 bg-black/80 p-2 rounded">{error}</div>}
+            
+            {error && (
+                <div className="absolute top-full mt-2 text-[8px] text-red-400 bg-black/90 p-2 rounded border border-red-500 shadow-lg backdrop-blur-sm flex items-center gap-2">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    {error}
+                </div>
+            )}
         </div>
     );
 };

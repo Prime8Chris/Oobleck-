@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch, DrumFX, LeaderboardEntry } from '../types';
-import { DEFAULT_PRESET, LAVA_PRESET, MERCURY_PRESET, GLORPCORE_PRESET, BZZZZT_PRESET, CRYSTAL_PRESET, VOID_PRESET, ETHEREAL_PRESET, INDUSTRIAL_PRESET, NEON_PRESET, GATE_PATTERNS, DRUM_KITS, GATE_DIVISIONS, DRUM_FX_OPTIONS, GENRE_PRESETS } from '../constants';
-import { Zap, Volume2, Loader2, Disc, Square, ChevronUp, ChevronDown, Waves, Activity, Wind, Church, Sparkles, ZapOff, Spline, Music2, Sliders, Heart, FolderHeart, Trash2, Drum, Grid3X3, Play, RotateCcw, VolumeX, Volume, Camera, MousePointer2, Scissors, ArrowUp, Wand2, Cpu, Radio, Globe, Skull, Activity as ActivityIcon, Waves as WavesIcon, Triangle, BoxSelect, Save, Lock, Unlock, Trophy } from 'lucide-react';
+import { ALL_PRESETS, GATE_PATTERNS, DRUM_KITS, DRUM_FX_OPTIONS, GENRE_PRESETS } from '../constants';
+import { Loader2, Sparkles, Lock, Unlock, Trophy, Save, RotateCcw, Scissors, Skull, Wand2, Cpu, Drum, Activity, Waves, Power, Disc, Mic, Camera, Sliders, ThumbsUp, Play, Square, Circle } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
 interface Props {
@@ -73,344 +73,129 @@ interface Props {
   leaderboard: LeaderboardEntry[];
   showHighScoreInput: boolean;
   onNameSubmit: (name: string) => void;
+
+  // Trigger Signal for Pickup Feedback
+  triggerSignal: { index: number, id: number } | null;
 }
 
-const FxButton: React.FC<{ label: string, active: boolean, onClick: () => void, icon: any, color: string }> = ({ label, active, onClick, icon: Icon, color }) => {
-  const colorStyles: Record<string, string> = {
-    cyan: 'bg-cyan-500/20 border-cyan-400/50 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.3)]',
-    violet: 'bg-violet-500/20 border-violet-400/50 text-violet-300 shadow-[0_0_10px_rgba(167,139,250,0.3)]',
-    indigo: 'bg-indigo-500/20 border-indigo-400/50 text-indigo-300 shadow-[0_0_10px_rgba(129,140,248,0.3)]',
-    orange: 'bg-orange-500/20 border-orange-400/50 text-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.3)]',
-    pink: 'bg-pink-500/20 border-pink-400/50 text-pink-400 shadow-[0_0_10px_rgba(244,114,182,0.3)]',
-    yellow: 'bg-yellow-500/20 border-yellow-400/50 text-yellow-300 shadow-[0_0_10px_rgba(250,204,21,0.3)]',
-    emerald: 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]',
-  };
+interface TriggerBurst {
+    id: number;
+    x: number;
+    y: number;
+    val: number;
+    color: string;
+}
 
-  const activeClass = colorStyles[color] || colorStyles.cyan;
-  const dotColor = active ? { backgroundColor: 'currentColor' } : {};
+// --- STYLED COMPONENTS ---
 
-  return (
-    <button
-      onMouseDown={(e) => { e.preventDefault(); onClick(); }} 
-      className={`
-        group flex items-center gap-2 p-1.5 rounded-md border transition-all duration-150 w-full mb-1
-        ${active 
-          ? `${activeClass} translate-x-1` 
-          : 'bg-black/40 border-white/5 text-gray-500 hover:bg-white/5 hover:border-white/10 hover:text-gray-300'}
-      `}
-    >
-      <div className={`p-0.5 rounded ${active ? 'bg-black/20' : ''}`}>
-         <Icon size={12} className={active ? 'animate-pulse' : ''} />
-      </div>
-      <span className="text-[9px] font-bold tracking-wider uppercase flex-1 text-left">{label}</span>
-      {active && <div className="w-1.5 h-1.5 rounded-full shadow-sm" style={dotColor} />}
-    </button>
-  );
+const Panel: React.FC<{ children: React.ReactNode, title?: React.ReactNode, className?: string, color?: string }> = ({ children, title, className = "", color = "cyan" }) => {
+    const borderClass = {
+        cyan: "border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.15)]",
+        pink: "border-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.15)]",
+        yellow: "border-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.15)]",
+        purple: "border-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.15)]",
+        red: "border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.15)]"
+    }[color] || "border-cyan-500";
+    
+    const bgTitle = {
+        cyan: "bg-cyan-900 text-cyan-100",
+        pink: "bg-pink-900 text-pink-100",
+        yellow: "bg-yellow-900 text-yellow-100",
+        purple: "bg-purple-900 text-purple-100",
+        red: "bg-red-900 text-red-100"
+    }[color] || "bg-cyan-900";
+
+    return (
+        <div className={`relative bg-black/90 backdrop-blur-sm border-2 rounded-lg p-2 flex flex-col ${borderClass} ${className}`}>
+            {title && (
+                <div className={`absolute -top-2.5 left-2 px-1.5 text-[9px] font-black tracking-widest uppercase border border-black/50 ${bgTitle} rounded-sm`}>
+                    {title}
+                </div>
+            )}
+            {children}
+        </div>
+    );
 };
 
-const VolumeSlider: React.FC<{ value: number, onChange: (v: number) => void, vertical?: boolean }> = ({ value, onChange, vertical = false }) => (
-  <div className={`relative flex items-center ${vertical ? 'h-16 w-8 justify-center' : 'w-full h-4'}`}>
-    <div className={`absolute rounded-full bg-gray-900 border border-gray-700 ${vertical ? 'w-1.5 h-full' : 'w-full h-1.5'}`} />
-    <div 
-        className={`absolute rounded-full bg-gradient-to-t from-teal-600 to-teal-400 ${vertical ? 'w-1.5 bottom-0' : 'h-1.5 left-0'}`}
-        style={vertical ? { height: `${value * 100}%` } : { width: `${value * 100}%` }}
-    />
-    <input
-      type="range"
-      min="0"
-      max="1"
-      step="0.01"
-      value={value} 
-      onChange={(e) => {
-          onChange(parseFloat(e.target.value));
-      }}
-      className={`
-        absolute w-full h-full opacity-0 cursor-pointer z-10
-        ${vertical ? 'appearance-slider-vertical' : ''}
-      `}
-      style={vertical ? { writingMode: 'vertical-lr', direction: 'rtl' } : {}}
-    />
-    <div 
-        className={`absolute w-3 h-3 bg-gray-200 border border-gray-400 rounded-sm shadow-md pointer-events-none transition-all duration-75
-            ${vertical ? 'left-1/2 -translate-x-1/2 mb-[-6px]' : 'top-1/2 -translate-y-1/2 ml-[-6px]'}
-        `}
-        style={vertical ? { bottom: `${value * 100}%` } : { left: `${value * 100}%` }}
-    />
-  </div>
-);
+const VolumeSlider: React.FC<{ value: number, onChange: (v: number) => void, vertical?: boolean, color?: string }> = ({ value, onChange, vertical = false, color = 'cyan' }) => {
+    const bgClass = {
+        cyan: 'bg-cyan-500 shadow-[0_0_10px_cyan]', 
+        pink: 'bg-pink-500 shadow-[0_0_10px_pink]', 
+        yellow: 'bg-yellow-500 shadow-[0_0_10px_yellow]', 
+        purple: 'bg-purple-500 shadow-[0_0_10px_purple]'
+    }[color] || 'bg-cyan-500';
 
-// New Scoreboard Component
-const ScoreBoard: React.FC<{ score: number, popups: {id: number, val: number, label: string}[] }> = ({ score, popups }) => {
     return (
-        <div id="scoreboard-target" className="relative mt-2 bg-black/60 backdrop-blur rounded-xl border border-teal-500/30 p-2 w-[100px] flex flex-col items-end overflow-visible">
-            <span className="text-[8px] font-bold text-teal-500 uppercase tracking-widest mb-1 w-full text-left">SCORE</span>
-            <div className="font-mono text-xl font-black text-white drop-shadow-[0_0_8px_rgba(45,212,191,0.8)] tracking-tight">
-                {score.toLocaleString()}
-            </div>
+        <div className={`relative flex items-center group ${vertical ? 'h-full w-8 justify-center' : 'w-full h-4'}`}>
+            {/* Track */}
+            <div className={`absolute bg-[#111] border border-[#333] rounded-full ${vertical ? 'w-2 h-full' : 'w-full h-2'}`} />
             
-            <div className="absolute top-0 right-0 w-full h-full pointer-events-none">
-                {popups.map(p => (
-                    <div key={p.id} className="absolute right-0 bottom-full mb-2 flex flex-col items-end animate-[float-score_1s_ease-out_forwards] whitespace-nowrap origin-bottom-right">
-                        <span className="text-yellow-400 font-black text-sm drop-shadow-md">+{p.val}</span>
-                        <span className="text-[8px] font-bold text-white/80 tracking-wider bg-black/50 px-1 rounded">{p.label}</span>
-                    </div>
-                ))}
-            </div>
+            {/* Fill */}
+            <div 
+                className={`absolute rounded-full ${bgClass} opacity-80 ${vertical ? 'w-2 bottom-0' : 'h-2 left-0'}`}
+                style={vertical ? { height: `${value * 100}%` } : { width: `${value * 100}%` }}
+            />
+            
+            <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={value} 
+                onChange={(e) => onChange(parseFloat(e.target.value))}
+                className={`absolute w-full h-full opacity-0 cursor-pointer z-20 ${vertical ? 'appearance-slider-vertical' : ''}`}
+            />
+            
+            {/* Thumb */}
+            <div 
+                className={`absolute w-3 h-3 bg-white border border-black shadow pointer-events-none transition-all duration-75 z-10 ${vertical ? 'left-1/2 -translate-x-1/2 mb-[-6px]' : 'top-1/2 -translate-y-1/2 ml-[-6px]'}`}
+                style={vertical ? { bottom: `${value * 100}%` } : { left: `${value * 100}%` }}
+            />
         </div>
-    )
-}
+    );
+};
 
-const Leaderboard: React.FC<{ entries: LeaderboardEntry[] }> = ({ entries }) => (
-    <div className="mt-2 bg-black/60 backdrop-blur rounded-xl border border-yellow-500/20 p-2 w-[100px]">
-        <div className="flex items-center gap-1 mb-1 border-b border-white/10 pb-1">
-            <Trophy size={8} className="text-yellow-500" />
-            <span className="text-[7px] font-bold text-yellow-500 uppercase tracking-widest">TOP 3</span>
-        </div>
-        <div className="flex flex-col gap-1.5">
-            {entries.map((entry, i) => (
-                <div key={i} className="flex flex-col">
-                    <div className="flex justify-between items-center text-[8px]">
-                        <span className="font-bold text-white">{i+1}. {entry.name}</span>
-                        <span className="text-yellow-400 font-mono">{entry.score}</span>
-                    </div>
-                    <span className="text-[6px] text-gray-500">{entry.date}</span>
-                </div>
-            ))}
-        </div>
-    </div>
-);
+const BurstDisplay: React.FC<{ burst: TriggerBurst }> = ({ burst }) => {
+    const particles = useMemo(() => Array.from({length: 8}).map((_, i) => {
+        const angle = (i / 8) * 360 + Math.random() * 30;
+        const dist = 40 + Math.random() * 30;
+        const tx = Math.cos(angle * Math.PI / 180) * dist;
+        const ty = Math.sin(angle * Math.PI / 180) * dist;
+        return { tx, ty, id: i, size: 2 + Math.random() * 3 };
+    }), []);
 
-// Local Floating Score for Buttons
-const FloatingScore: React.FC<{ popups: {id: number, val: number, label: string}[], filter: string }> = ({ popups, filter }) => {
-    const relevant = popups.filter(p => p.label === filter);
-    if (relevant.length === 0) return null;
-    
     return (
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-50 overflow-visible">
-             {relevant.map(p => (
-                 <div key={p.id} className="absolute animate-[float-score_0.8s_ease-out_forwards] flex flex-col items-center">
-                     <span 
-                        className="text-yellow-300 font-black text-4xl drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)]"
-                        style={{ textShadow: '0 0 10px rgba(234, 179, 8, 0.5)' }}
-                     >
-                        +{p.val}
-                     </span>
-                 </div>
+        <div className="absolute pointer-events-none z-[100]" style={{ left: burst.x, top: burst.y }}>
+             {/* Popup Score */}
+             <div className="absolute -translate-x-1/2 -translate-y-full font-black text-2xl font-arcade animate-[float-up_0.8s_ease-out_forwards] stroke-black"
+                  style={{ color: burst.color, textShadow: `2px 2px 0px black, 0 0 10px ${burst.color}` }}>
+                  +{burst.val}
+             </div>
+             
+             {/* Particles */}
+             {particles.map(p => (
+                 <div key={p.id} 
+                      className="absolute rounded-full"
+                      style={{
+                          width: p.size,
+                          height: p.size,
+                          backgroundColor: burst.color,
+                          boxShadow: `0 0 5px ${burst.color}`,
+                          '--tx': `${p.tx}px`,
+                          '--ty': `${p.ty}px`,
+                          animation: 'burst-particle 0.6s ease-out forwards'
+                      } as React.CSSProperties} 
+                 />
              ))}
         </div>
-    )
-}
-
-// Sound Active Flying Point
-const FlyingPoint: React.FC<{ startX: number, startY: number, val: number }> = ({ startX, startY, val }) => {
-    // Approximate target position of the scoreboard (Right sidebar)
-    const targetX = window.innerWidth - 60; 
-    const targetY = 300; 
-
-    return (
-        <div 
-            className="fixed pointer-events-none z-[100] text-yellow-300 font-black text-lg drop-shadow-md animate-[fly-to-score_0.7s_ease-in-out_forwards]"
-            style={{ 
-                left: startX, 
-                top: startY,
-                '--tx': `${targetX - startX}px`,
-                '--ty': `${targetY - startY}px`
-            } as React.CSSProperties}
-        >
-            +{val}
-        </div>
     );
 };
 
-// Neon Thumbs Up SVG
-const NeonThumbsUp = ({ className }: { className?: string }) => (
-    <svg viewBox="0 0 200 200" className={className} overflow="visible">
-        <defs>
-            <linearGradient id="neonThumbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#06b6d4" /> {/* Cyan */}
-                <stop offset="50%" stopColor="#d946ef" /> {/* Magenta */}
-                <stop offset="100%" stopColor="#eab308" /> {/* Yellow */}
-            </linearGradient>
-            <filter id="neonThumbGlow">
-                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                <feMerge>
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-            </filter>
-        </defs>
-        
-        {/* Hand/Thumb Path */}
-        <path 
-            d="M50,100 L50,150 Q50,170 70,170 L130,170 Q150,170 150,150 L150,120 Q150,100 130,100 L110,100 L120,70 Q125,50 110,40 Q95,30 90,50 L80,100 L70,100 Q50,100 50,100 Z
-               M50,100 Q40,100 40,110 L40,160 Q40,170 50,170"
-            fill="none" 
-            stroke="url(#neonThumbGrad)" 
-            strokeWidth="8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter="url(#neonThumbGlow)" 
-        />
-        
-        {/* Fill with low opacity */}
-        <path 
-            d="M50,100 L50,150 Q50,170 70,170 L130,170 Q150,170 150,150 L150,120 Q150,100 130,100 L110,100 L120,70 Q125,50 110,40 Q95,30 90,50 L80,100 L70,100 Q50,100 50,100 Z"
-            fill="url(#neonThumbGrad)" 
-            opacity="0.2"
-        />
-        
-        {/* Motion Lines */}
-        <path d="M160,50 L170,40" stroke="#eab308" strokeWidth="4" strokeLinecap="round" filter="url(#neonThumbGlow)" />
-        <path d="M170,70 L185,65" stroke="#d946ef" strokeWidth="4" strokeLinecap="round" filter="url(#neonThumbGlow)" />
-        <path d="M30,130 L20,135" stroke="#06b6d4" strokeWidth="4" strokeLinecap="round" filter="url(#neonThumbGlow)" />
-    </svg>
-);
-
-// Neon Lock SVG
-const NeonLock = ({ className, isLocked }: { className?: string, isLocked: boolean }) => (
-    <svg viewBox="0 0 200 200" className={`${className} pointer-events-none`} overflow="visible">
-        <defs>
-            <linearGradient id="neonLockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#f472b6" /> {/* Pink */}
-                <stop offset="50%" stopColor="#a855f7" /> {/* Purple */}
-                <stop offset="100%" stopColor="#3b82f6" /> {/* Blue */}
-            </linearGradient>
-            <linearGradient id="neonShackleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#22d3ee" />
-                <stop offset="100%" stopColor="#06b6d4" />
-            </linearGradient>
-            <filter id="neonLockGlow">
-                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                <feMerge>
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-            </filter>
-        </defs>
-        
-        {/* Shackle */}
-        <path 
-            d="M60,90 V50 A40,40 0 0 1 140,50 V90"
-            fill="none"
-            stroke="url(#neonShackleGrad)"
-            strokeWidth="12"
-            strokeLinecap="round"
-            filter="url(#neonLockGlow)"
-            className={`transition-all duration-300 ${isLocked ? 'translate-y-0' : '-translate-y-12'}`}
-        />
-
-        {/* Lock Body */}
-        <rect 
-            x="40" y="90" width="120" height="100" rx="15"
-            fill="#1e1b4b"
-            stroke="url(#neonLockGrad)"
-            strokeWidth="8"
-            filter="url(#neonLockGlow)"
-        />
-        
-        {/* Keyhole */}
-        <circle cx="100" cy="130" r="12" fill="url(#neonShackleGrad)" filter="url(#neonLockGlow)" />
-        <path d="M100,130 L85,170 H115 Z" fill="url(#neonShackleGrad)" filter="url(#neonLockGlow)" />
-    </svg>
-);
-
-// Vibrant OOBLECK Logo SVG
-const OobleckLogo = ({ onClick, children }: { onClick: () => void, children?: React.ReactNode }) => (
-  <div 
-    className="cursor-pointer relative group w-64 h-64 select-none z-20" 
-    onClick={onClick}
-    role="button"
-    aria-label="Randomize (Chaos Mode)"
-  >
-    <svg viewBox="0 0 300 240" className="w-full h-full drop-shadow-[0_15px_35px_rgba(0,0,0,0.8)] overflow-visible">
-       <defs>
-         <linearGradient id="slimeGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#84cc16" />
-            <stop offset="50%" stopColor="#22c55e" />
-            <stop offset="100%" stopColor="#14532d" />
-         </linearGradient>
-         <linearGradient id="textGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#fef08a" />
-            <stop offset="50%" stopColor="#f472b6" />
-            <stop offset="100%" stopColor="#a855f7" />
-         </linearGradient>
-         <filter id="neonGlow">
-            <feGaussianBlur stdDeviation="3.5" result="coloredBlur"/>
-            <feMerge>
-                <feMergeNode in="coloredBlur"/>
-                <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-         </filter>
-         <filter id="displacement">
-             <feTurbulence type="turbulence" baseFrequency="0.05" numOctaves="2" result="turbulence"/>
-             <feDisplacementMap in2="turbulence" in="SourceGraphic" scale="5" xChannelSelector="R" yChannelSelector="G"/>
-         </filter>
-       </defs>
-       
-       <path d="M160,10 Q250,-20 280,60 Q310,140 230,200 Q150,250 60,190 Q-10,130 30,50 Q70,-20 160,10 Z" 
-             fill="#3b0764" stroke="black" strokeWidth="12" />
-       <path d="M150,20 Q230,-10 260,60 Q290,130 220,180 Q150,230 80,180 Q10,130 40,60 Q70,-10 150,20 Z" 
-             fill="url(#slimeGrad)" stroke="black" strokeWidth="6" />
-       <path d="M100,50 Q150,40 200,60 Q230,100 200,140 Q150,160 100,140 Q70,100 100,50 Z" 
-             fill="#bef264" opacity="0.4" filter="url(#displacement)" />
-       <g transform="translate(150,115) rotate(-5)">
-          <text x="8" y="8" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
-                fill="#1e1b4b" stroke="#1e1b4b" strokeWidth="24" letterSpacing="-4" opacity="0.8">OOBLECK</text>
-          <text x="0" y="0" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
-                fill="black" stroke="black" strokeWidth="22" letterSpacing="-4">OOBLECK</text>
-          <text x="0" y="0" textAnchor="middle" fontSize="72" fontFamily="Arial Black, sans-serif" fontWeight="900"
-                fill="url(#textGrad)" stroke="white" strokeWidth="3" letterSpacing="-4" paintOrder="stroke">OOBLECK</text>
-          <path d="M-130,-35 Q-60,-55 0,-45 T130,-35" stroke="white" strokeWidth="6" fill="none" opacity="0.6" strokeLinecap="round" />
-       </g>
-       <path d="M80,175 Q85,200 80,225" stroke="#4ade80" strokeWidth="10" fill="none" strokeLinecap="round" />
-       <circle cx="80" cy="235" r="6" fill="#4ade80" />
-       <path d="M220,165 Q215,190 220,215" stroke="#4ade80" strokeWidth="8" fill="none" strokeLinecap="round" />
-       <path d="M260,30 L285,10 L275,50 L295,30" stroke="#fef08a" strokeWidth="4" fill="none" filter="url(#neonGlow)">
-          <animate attributeName="opacity" values="0;1;0" dur="0.4s" repeatCount="indefinite" />
-       </path>
-       <path d="M20,160 L5,190 L35,180" stroke="#fef08a" strokeWidth="4" fill="none" filter="url(#neonGlow)">
-          <animate attributeName="opacity" values="0;1;0" dur="0.6s" repeatCount="indefinite" />
-       </path>
-       <g transform="translate(150,175) rotate(2)">
-           <path d="M-115,-14 L115,-14 L105,14 L-125,14 Z" fill="black" stroke="#2dd4bf" strokeWidth="2" />
-           <text x="0" y="5" textAnchor="middle" fontSize="11" fontFamily="monospace" fontWeight="bold" fill="#2dd4bf" letterSpacing="2">FLUID SYNTHESIZER</text>
-       </g>
-    </svg>
-    <div className="absolute inset-0 rounded-full bg-green-500/20 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-    {children}
-  </div>
-);
-
-// Internal component for the flying animation
-const FlyingThumbImpl: React.FC<{sx: number, sy: number, tx: number, ty: number, onComplete: () => void}> = ({sx, sy, tx, ty, onComplete}) => {
-    const [style, setStyle] = useState<React.CSSProperties>({
-        transform: `translate(${sx}px, ${sy}px) scale(1)`,
-        opacity: 1
-    });
-
-    useEffect(() => {
-        requestAnimationFrame(() => {
-            setStyle({
-                transform: `translate(${tx}px, ${ty}px) scale(0.2)`,
-                opacity: 0
-            });
-        });
-        const t = setTimeout(onComplete, 500); 
-        return () => clearTimeout(t);
-    }, []);
-
-    return (
-        <div className="fixed top-0 left-0 transition-all duration-500 ease-in-out pointer-events-none z-[100]" style={style}>
-            <div style={{ transform: 'translate(-50%, -50%)' }}>
-                <NeonThumbsUp className="w-16 h-16" />
-            </div>
-        </div>
-    );
-};
+// --- MAIN COMPONENT ---
 
 const UIOverlay: React.FC<Props> = ({ 
   currentPreset, onPresetChange, playState, setPlayState, 
-  onGenerateStart, isRecording, onToggleRecord, octave, onOctaveChange,
+  isRecording, onToggleRecord, octave, onOctaveChange,
   fxState, onToggleFx, onNotePlay, arpSettings, onArpChange, onScaleFrequenciesChange,
   drumSettings, onDrumChange, onToggleDrums, currentStep, gateSettings, onGateChange,
   synthVolume, onSynthVolumeChange,
@@ -421,53 +206,75 @@ const UIOverlay: React.FC<Props> = ({
   userPatches, onLoadPatch, onBigSave, saveButtonText,
   nextSaveSlotIndex, isChaosLocked, onToggleChaosLock,
   score, scorePopups, activePoints,
-  leaderboard, showHighScoreInput, onNameSubmit
+  leaderboard, showHighScoreInput, onNameSubmit,
+  triggerSignal
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
-  const [hasRandomized, setHasRandomized] = useState(false);
-  const [hasReverted, setHasReverted] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const [isAltPressed, setIsAltPressed] = useState(false);
-  const [isEscPressed, setIsEscPressed] = useState(false);
   const [highScoreName, setHighScoreName] = useState('');
-  
-  const saveBtnRef = useRef<HTMLButtonElement>(null);
-  const presetBtnRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [flyingThumb, setFlyingThumb] = useState<{sx:number, sy:number, tx:number, ty:number, id:number} | null>(null);
+  const [bursts, setBursts] = useState<TriggerBurst[]>([]);
 
-  const handleBigSaveClick = () => {
-    if (saveBtnRef.current) {
-        const sRect = saveBtnRef.current.getBoundingClientRect();
-        const tRect = presetBtnRefs.current[nextSaveSlotIndex]?.getBoundingClientRect();
-        if (tRect) {
-             setFlyingThumb({
-                 sx: sRect.left + sRect.width / 2,
-                 sy: sRect.top + sRect.height / 2,
-                 tx: tRect.left + tRect.width / 2,
-                 ty: tRect.top + tRect.height / 2,
-                 id: Date.now()
-             });
-        }
-    }
-    onBigSave();
-  };
+  // Refs for Trigger Buttons to calculate position for feedback
+  const chopRef = useRef<HTMLButtonElement>(null);
+  const growlRef = useRef<HTMLButtonElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
+  const chaosRef = useRef<HTMLButtonElement>(null);
 
+  // Keyboard Logic kept from original
   const NOTE_MAP: Record<string, number> = {
     'z': 0, 's': 1, 'x': 2, 'd': 3, 'c': 4, 'v': 5, 'g': 6, 'b': 7, 'h': 8, 'n': 9, 'j': 10, 'm': 11,
     ',': 12, 'l': 13, '.': 14, ';': 15, '/': 16
   };
-  
-  const SCALES = {
-      'Chromatic': [0,1,2,3,4,5,6,7,8,9,10,11],
-      'Major': [0,2,4,5,7,9,11],
-      'Minor': [0,2,3,5,7,8,10],
-      'Pentatonic': [0,3,5,7,10]
-  };
+  const SCALES = { 'Chromatic': [0,1,2,3,4,5,6,7,8,9,10,11], 'Major': [0,2,4,5,7,9,11], 'Minor': [0,2,3,5,7,8,10], 'Pentatonic': [0,3,5,7,10] };
   const [selectedScale, setSelectedScale] = useState<keyof typeof SCALES>('Chromatic');
   const [rootNote, setRootNote] = useState(0); 
+  
+  const triggerFeedback = useCallback((e: React.MouseEvent | React.TouchEvent, val: number, color: string) => {
+      let clientX = 0;
+      let clientY = 0;
+
+      if ('touches' in e && e.touches.length > 0) {
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+      } else if ('clientX' in e) {
+          clientX = (e as React.MouseEvent).clientX;
+          clientY = (e as React.MouseEvent).clientY;
+      } else {
+          // Fallback if no coordinates (e.g. keypress simulated)
+          const target = e.currentTarget as HTMLElement;
+          const rect = target.getBoundingClientRect();
+          clientX = rect.left + rect.width / 2;
+          clientY = rect.top + rect.height / 2;
+      }
+
+      const id = Date.now() + Math.random();
+      setBursts(prev => [...prev, { id, x: clientX, y: clientY, val, color }]);
+      setTimeout(() => setBursts(prev => prev.filter(b => b.id !== id)), 800);
+  }, []);
+
+  // Effect to handle external triggers from webcam motion
+  useEffect(() => {
+      if (triggerSignal) {
+          const { index } = triggerSignal;
+          let target: { ref: React.RefObject<HTMLButtonElement | null>, val: number, color: string } | null = null;
+          
+          if (index === 0) target = { ref: chopRef, val: 500, color: '#ef4444' };
+          if (index === 1) target = { ref: growlRef, val: 1000, color: '#eab308' };
+          if (index === 2) target = { ref: backRef, val: 250, color: '#22d3ee' };
+          if (index === 3) target = { ref: chaosRef, val: 250, color: '#d946ef' };
+          
+          if (target && target.ref.current) {
+               const rect = target.ref.current.getBoundingClientRect();
+               const x = rect.left + rect.width / 2;
+               const y = rect.top + rect.height / 2;
+               const id = Date.now() + Math.random();
+               
+               setBursts(prev => [...prev, { id, x, y, val: target.val, color: target.color }]);
+               setTimeout(() => setBursts(prev => prev.filter(b => b.id !== id)), 800);
+          }
+      }
+  }, [triggerSignal]);
 
   useEffect(() => {
       const baseFreq = 65.41; 
@@ -495,118 +302,19 @@ const UIOverlay: React.FC<Props> = ({
   };
 
   const handleKeyDown = useCallback((e: any) => {
-    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
     if (e.repeat) return;
     
-    if (e.code === 'Space') {
-        e.preventDefault();
-        if (isChaosLocked) {
-            onToggleChaosLock();
-            return;
-        }
-        setIsSpacePressed(true);
-        onRandomize();
-        setHasRandomized(true);
-        return;
-    }
-
-    if (e.key === 'Escape') {
-        e.preventDefault();
-        setIsEscPressed(true);
-        onRevertPreset();
-        setHasReverted(true);
-        return;
-    }
-
-    if (e.key === 'Alt') {
-        e.preventDefault();
-        setIsAltPressed(true);
-        onGrowl();
-        return;
-    }
-
-    if (e.key === 'Enter') {
-        e.preventDefault(); // Stop focused buttons from clicking
-        e.stopPropagation();
-        if (playState === PlayState.IDLE) {
-            setPlayState(PlayState.PLAYING);
-        } else {
-            onToggleDrums();
-        }
-        return;
-    }
-
-    if (e.key === '\\') {
-        onToggleCamera();
-        return;
-    }
-
-    if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        onOctaveChange(Math.min(octave + 1, 2));
-        return;
-    }
-    if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        onOctaveChange(Math.max(octave - 1, -2));
-        return;
-    }
-    if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        onCrossFaderChange(Math.max(0, crossFader - 0.1));
-        return;
-    }
-    if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        onCrossFaderChange(Math.min(1, crossFader + 0.1));
-        return;
-    }
-
-    if (e.key === '[') {
-        onSynthVolumeChange(Math.max(0, synthVolume - 0.05));
-        return;
-    }
-    if (e.key === ']') {
-        onSynthVolumeChange(Math.min(1, synthVolume + 0.05));
-        return;
-    }
-
-    const gateMap: Record<string, GateDivision> = {
-        'q': '1/64', 'w': '1/32', 'e': '1/16', 'r': '1/8', 't': '1/4'
-    };
-    if (gateMap[e.key.toLowerCase()]) {
-        onGateChange({ ...gateSettings, division: gateMap[e.key.toLowerCase()] });
-        return;
-    }
-
-    if (e.key.toLowerCase() === 'u') {
-        onArpChange({ ...arpSettings, enabled: !arpSettings.enabled });
-        return;
-    }
-    if (e.key.toLowerCase() === 'i') {
-        onGateChange({ ...gateSettings, enabled: !gateSettings.enabled });
-        return;
-    }
-    if (e.key.toLowerCase() === 'o') {
-        onToggleDrums();
-        return;
-    }
-    if (e.key.toLowerCase() === 'p') {
-        onToggleRecord();
-        return;
-    }
+    if (e.code === 'Space') { e.preventDefault(); if (isChaosLocked) onToggleChaosLock(); else onRandomize(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); onRevertPreset(); return; }
+    if (e.key === 'Alt') { e.preventDefault(); onGrowl(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); if (playState === PlayState.IDLE) setPlayState(PlayState.PLAYING); else onToggleDrums(); return; }
+    if (e.key === '\\') { onToggleCamera(); return; }
+    
+    if (e.key === 'ArrowUp') { e.preventDefault(); onOctaveChange(Math.min(octave + 1, 2)); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); onOctaveChange(Math.max(octave - 1, -2)); return; }
 
     const key = e.key;
-    const PRESET_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
-    const pIdx = PRESET_KEYS.indexOf(key);
-    
-    if (pIdx >= 0) {
-        if (userPatches[pIdx]) {
-            onLoadPatch(userPatches[pIdx]);
-        }
-        return;
-    }
-
     if (NOTE_MAP.hasOwnProperty(key)) {
       const semitone = NOTE_MAP[key];
       const quantized = quantizeNote(semitone);
@@ -614,794 +322,626 @@ const UIOverlay: React.FC<Props> = ({
       onNotePlay(freq);
       setActiveMouseNote(semitone);
     }
-  }, [octave, crossFader, synthVolume, gateSettings, arpSettings, drumSettings, onPresetChange, playState, onToggleRecord, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl, userPatches, onLoadPatch, isChaosLocked, onToggleChaosLock, onToggleDrums]);
+  }, [octave, onNotePlay, onToggleCamera, selectedScale, rootNote, onRandomize, onRevertPreset, onGrowl, isChaosLocked, onToggleChaosLock, onToggleDrums, playState]);
 
-  const handleKeyUp = useCallback((e: any) => {
-      if (e.code === 'Space') setIsSpacePressed(false);
-      if (e.key === 'Alt') setIsAltPressed(false);
-      if (e.key === 'Escape') setIsEscPressed(false);
-      setActiveMouseNote(null);
-  }, []);
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [handleKeyDown, handleKeyUp]); 
+  const handleKeyUp = useCallback((e: any) => { setActiveMouseNote(null); }, []);
+  useEffect(() => { window.addEventListener('keydown', handleKeyDown); window.addEventListener('keyup', handleKeyUp); return () => { window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp); }; }, [handleKeyDown, handleKeyUp]);
 
   const handleGenerate = async () => {
       if (!prompt.trim()) return;
       setIsGenerating(true);
-      try {
-          const newPreset = await generatePreset(prompt);
-          onPresetChange(newPreset);
-      } catch (e) {
-          console.error(e);
-      } finally {
-          setIsGenerating(false);
+      try { const newPreset = await generatePreset(prompt); onPresetChange(newPreset); } catch (e) { console.error(e); } finally { setIsGenerating(false); }
+  };
+
+  const handlePlayStop = () => {
+      if (drumSettings.enabled) {
+          onDrumChange({ ...drumSettings, enabled: false });
+          if (isCameraActive) onToggleCamera();
+      } else {
+          onDrumChange({ ...drumSettings, enabled: true });
+          if (!gateSettings.enabled) {
+              onGateChange({ ...gateSettings, enabled: true });
+          }
       }
   };
 
-  const totalKeys = 48;
+  const totalKeys = 36;
   const allKeys = Array.from({ length: totalKeys }, (_, i) => i);
   const whiteKeys = allKeys.filter(i => [0, 2, 4, 5, 7, 9, 11].includes(i % 12));
   const blackKeys = allKeys.filter(i => [1, 3, 6, 8, 10].includes(i % 12));
   const numWhiteKeys = whiteKeys.length;
 
   return (
-    <div className="absolute inset-0 pointer-events-none p-4 flex flex-col justify-between z-10 overflow-hidden">
+    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between overflow-hidden font-sans select-none text-gray-200">
       
+      {/* Scanline Overlay */}
       <style>{`
-        @keyframes wiggle {
-            0%, 100% { transform: rotate(-3deg); }
-            50% { transform: rotate(3deg); }
+        .arcade-scanlines {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+            background-size: 100% 4px;
+            pointer-events: none;
+            position: absolute; inset: 0; z-index: 50; opacity: 0.5;
         }
-        @keyframes snip {
-            0%, 100% { transform: rotate(0deg); }
-            50% { transform: rotate(-25deg); }
+        .animate-rough-shake {
+            animation: rough-shake 0.05s infinite;
         }
-        @keyframes reverse-spin {
-            from { transform: rotate(360deg); }
-            to { transform: rotate(0deg); }
+        @keyframes rough-shake {
+            0% { transform: translate(2px, 2px) rotate(0deg); }
+            20% { transform: translate(-4px, -4px) rotate(-2deg); }
+            40% { transform: translate(-2px, 2px) rotate(2deg); }
+            60% { transform: translate(4px, 4px) rotate(0deg); }
+            80% { transform: translate(2px, -2px) rotate(-2deg); }
+            100% { transform: translate(0, 0) rotate(0deg); }
         }
-        @keyframes splat-dance {
-            0%, 100% { transform: scale(2) rotate(0deg); }
-            25% { transform: scale(2.1) rotate(-2deg); }
-            50% { transform: scale(2) rotate(0deg); }
-            75% { transform: scale(2.1) rotate(2deg); }
+        @keyframes burst-particle {
+            0% { transform: translate(0, 0) scale(1); opacity: 1; }
+            100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
         }
-        @keyframes float-score {
-            0% { opacity: 1; transform: translateY(0) scale(1); }
-            100% { opacity: 0; transform: translateY(-30px) scale(1.2); }
-        }
-        @keyframes fly-to-score {
-            0% { opacity: 1; transform: translate(0, 0) scale(1); }
-            100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0.2); }
+        @keyframes float-up {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            50% { transform: translateY(-40px) scale(1.2); opacity: 1; }
+            100% { transform: translateY(-80px) scale(1); opacity: 0; }
         }
       `}</style>
+      <div className="arcade-scanlines"></div>
 
-      {/* FLYING SOUND POINTS */}
-      {activePoints.map(p => (
-          <FlyingPoint key={p.id} startX={p.x} startY={p.y} val={p.val} />
-      ))}
+      {/* --- BURST OVERLAY --- */}
+      {bursts.map(b => <BurstDisplay key={b.id} burst={b} />)}
 
-      {flyingThumb && (
-          <FlyingThumbImpl key={flyingThumb.id} sx={flyingThumb.sx} sy={flyingThumb.sy} tx={flyingThumb.tx} ty={flyingThumb.ty} onComplete={() => setFlyingThumb(null)} />
-      )}
-      
-      {/* HIGH SCORE CELEBRATION */}
-      {showHighScoreInput && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md pointer-events-auto">
-              <div className="bg-gradient-to-br from-yellow-500 via-orange-500 to-red-500 p-1 rounded-2xl animate-pulse">
-                  <div className="bg-black p-8 rounded-xl border border-yellow-400 shadow-[0_0_50px_rgba(234,179,8,0.5)] text-center">
-                      <Trophy size={48} className="mx-auto text-yellow-400 mb-4 animate-bounce" />
-                      <h2 className="text-3xl font-black text-white mb-2 italic">NEW HIGH SCORE!</h2>
-                      <div className="text-4xl font-mono text-yellow-300 font-bold mb-4">{score.toLocaleString()}</div>
-                      <input 
-                          autoFocus
-                          maxLength={8}
-                          value={highScoreName}
-                          onChange={(e) => setHighScoreName(e.target.value.toUpperCase())}
-                          placeholder="ENTER NAME"
-                          className="bg-zinc-800 border-2 border-zinc-600 text-white text-center text-xl font-bold p-2 rounded mb-4 w-full uppercase focus:outline-none focus:border-yellow-400"
-                      />
-                      <button 
-                          onClick={() => onNameSubmit(highScoreName || "ANON")}
-                          className="bg-yellow-500 hover:bg-yellow-400 text-black font-black py-3 px-6 rounded-lg w-full transition-transform hover:scale-105"
-                      >
-                          CLAIM GLORY
-                      </button>
-                  </div>
-              </div>
-              {/* Confetti CSS */}
-              <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                  {[...Array(50)].map((_, i) => (
-                      <div key={i} className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-[float-score_3s_ease-out_infinite]" 
-                           style={{ 
-                               left: `${Math.random() * 100}%`, 
-                               top: `${Math.random() * 100}%`,
-                               animationDelay: `${Math.random() * 2}s`
-                           }} 
-                      />
-                  ))}
-              </div>
-          </div>
-      )}
-
-      {currentGrowlName && (
-        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60]">
-            <div className="bg-yellow-400 text-black font-black text-4xl px-8 py-4 -skew-x-12 border-4 border-black shadow-[8px_8px_0px_black] uppercase tracking-tighter animate-[wiggle_0.2s_ease-in-out_infinite]">
-                {currentGrowlName}
-            </div>
-        </div>
-      )}
-
-      {playState === PlayState.PLAYING && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-auto w-[500px] h-[300px]">
-            <div className="grid grid-cols-2 grid-rows-2 gap-2 w-full h-full">
-                <button
-                    onClick={onChop}
-                    className={`
-                        group relative flex flex-col items-center justify-center
-                        bg-gradient-to-r from-orange-400 via-red-500 to-yellow-500
-                        rounded-2xl border-4 border-black
-                        transition-all duration-150
-                        hover:opacity-75 hover:scale-[1.02]
-                        active:opacity-100 active:scale-95 active:shadow-none
-                        shadow-[6px_6px_0px_#000]
-                        opacity-50
-                    `}
-                >
-                    <Scissors className="w-10 h-10 mb-2 animate-[snip_0.4s_ease-in-out_infinite] text-white drop-shadow-md" strokeWidth={3} />
-                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">CHOP IT UP</span>
-                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(CLICK)</span>
-                    <FloatingScore popups={scorePopups} filter="CHOP" />
-                </button>
-
-                <button
-                    onClick={onGrowl}
-                    className={`
-                        group relative flex flex-col items-center justify-center
-                        bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600
-                        rounded-2xl border-4 border-black
-                        transition-all duration-150
-                        hover:opacity-75 hover:scale-[1.02]
-                        active:opacity-100 active:scale-95 active:shadow-none
-                        shadow-[6px_6px_0px_#000]
-                        ${isAltPressed || currentGrowlName ? 'opacity-100 scale-[1.02]' : 'opacity-50'}
-                    `}
-                >
-                    <Skull className="w-10 h-10 mb-2 animate-[bounce_0.5s_infinite] text-white drop-shadow-md" strokeWidth={3} />
-                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">GRRRR!</span>
-                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ALT)</span>
-                    <FloatingScore popups={scorePopups} filter="GRRRR!" />
-                </button>
-
-                <button
-                    onClick={() => { onRevertPreset(); setHasReverted(true); }}
-                    className={`
-                        group relative flex flex-col items-center justify-center
-                        bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-600
-                        rounded-2xl border-4 border-black
-                        transition-all duration-150
-                        hover:opacity-75 hover:scale-[1.02]
-                        active:opacity-100 active:scale-95 active:shadow-none
-                        shadow-[6px_6px_0px_#000]
-                        ${isEscPressed ? 'opacity-100 scale-[1.02]' : 'opacity-50'}
-                    `}
-                >
-                    <RotateCcw className="w-10 h-10 mb-2 animate-[reverse-spin_1.5s_linear_infinite] text-white drop-shadow-md" strokeWidth={3} />
-                    <span className="font-black text-2xl italic tracking-tighter text-white drop-shadow-md">RUN BACK</span>
-                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(ESC)</span>
-                    <FloatingScore popups={scorePopups} filter="RUN BACK" />
-                </button>
-
-                <button
-                    onClick={() => { if(!isChaosLocked) { onRandomize(); setHasRandomized(true); } }}
-                    disabled={isChaosLocked}
-                    className={`
-                        group relative flex flex-col items-center justify-center
-                        rounded-2xl border-4 border-black
-                        transition-all duration-150
-                        shadow-[6px_6px_0px_#000]
-                        ${isChaosLocked 
-                            ? 'bg-zinc-800 cursor-not-allowed border-zinc-600 opacity-50'
-                            : `bg-gradient-to-r from-red-500 via-purple-500 to-blue-600 hover:opacity-75 hover:scale-[1.02] active:opacity-100 active:scale-95 active:shadow-none ${isSpacePressed ? 'opacity-100 scale-[1.02]' : 'opacity-50'}`
-                        }
-                    `}
-                >
-                    {isChaosLocked ? <Lock className="w-10 h-10 mb-2 text-zinc-500 pointer-events-none" /> : <Wand2 className="w-10 h-10 mb-2 animate-spin text-white drop-shadow-md" strokeWidth={3} />}
-                    <span className={`font-black text-2xl italic tracking-tighter drop-shadow-md ${isChaosLocked ? 'text-zinc-500' : 'text-white'}`}>
-                        {isChaosLocked ? 'LOCKED' : 'CHAOS'}
-                    </span>
-                    <span className="text-[10px] font-mono font-bold text-white/80 tracking-widest mt-1">(SPACE)</span>
-                    <FloatingScore popups={scorePopups} filter="CHAOS" />
-                </button>
-            </div>
-        </div>
-      )}
-
-      <div className="flex justify-between items-start pointer-events-auto">
-        <div className="flex flex-col gap-4 relative ml-[15px]">
-          <OobleckLogo onClick={() => { if(!isChaosLocked) { onRandomize(); setHasRandomized(true); } }}>
-              <FloatingScore popups={scorePopups} filter="LOOP" />
-          </OobleckLogo>
-
-          {!hasRandomized && (
-            <div className="absolute top-40 -right-4 flex items-center gap-2 animate-pulse pointer-events-none">
-                <div className="text-teal-400 font-handwriting text-xl -rotate-12 font-bold whitespace-nowrap">CLICK ME</div>
-                <ArrowUp className="text-teal-400 rotate-[-45deg]" size={32} />
-            </div>
-          )}
-
-          <div className="w-64 h-48"></div> 
-
-          <div className="relative w-64 flex justify-center -mt-2">
-              <button 
-                  onClick={onToggleCamera}
-                  className={`
-                      group relative flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-xs tracking-wider transition-all w-full
-                      border-2 border-black shadow-[4px_4px_0px_#000]
-                      active:opacity-100 active:scale-95 active:shadow-none
-                      hover:scale-[1.02]
-                      ${isCameraActive 
-                          ? 'bg-gradient-to-r from-red-500 via-pink-500 to-purple-500 text-white animate-pulse opacity-50 hover:opacity-75 active:opacity-100 scale-[1.02] shadow-[0_0_15px_rgba(236,72,153,0.6)]' 
-                          : `bg-gradient-to-r from-cyan-400 via-blue-500 to-teal-400 text-black opacity-50 hover:opacity-75
-                             ${isSounding ? 'animate-[splat-dance_0.2s_ease-in-out_infinite]' : 'animate-[splat-dance_3s_ease-in-out_infinite]'}`
-                      }
-                  `}
-              >
-                  <Camera size={18} className={isCameraActive ? "animate-spin" : "group-hover:rotate-12 transition-transform"} />
-                  <span className="drop-shadow-md italic">
-                      {isCameraActive ? 'CAMERA OFF' : 'CAMERA ON'}
-                  </span>
-              </button>
-              {!isCameraActive && !hasRandomized && (
-                   <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 flex flex-col items-center animate-bounce pointer-events-none">
-                      <ArrowUp size={20} className="text-red-400" />
-                  </div>
-              )}
-          </div>
-        </div>
-        
-        {/* CENTER BUTTONS: LOCK & SAVE */}
-        <div className="absolute left-1/2 -translate-x-1/2 top-4 pointer-events-auto z-20 flex items-center gap-4">
-            {/* CHAOS LOCK BUTTON */}
-            <button
-                onClick={onToggleChaosLock}
-                className="relative group w-28 h-20 flex items-center justify-center focus:outline-none transition-transform active:scale-95 translate-y-[18px] z-50"
-            >
-                <NeonLock 
-                    isLocked={isChaosLocked}
-                    className={`absolute inset-0 w-full h-full drop-shadow-[0_0_20px_rgba(168,85,247,0.5)] ${isSounding ? 'animate-[splat-dance_0.2s_ease-in-out_infinite]' : 'animate-[splat-dance_3s_ease-in-out_infinite]'}`}
-                />
-            </button>
-
-            {/* BIG SAVE BUTTON */}
-            <button
-                ref={saveBtnRef}
-                onClick={handleBigSaveClick}
-                className="relative group w-48 h-32 flex items-center justify-center focus:outline-none transition-transform active:scale-95"
-            >
-                <NeonThumbsUp 
-                    className={`absolute inset-0 w-full h-full drop-shadow-[0_0_20px_rgba(217,70,239,0.5)] ${isSounding ? 'animate-[splat-dance_0.2s_ease-in-out_infinite]' : 'animate-[splat-dance_3s_ease-in-out_infinite]'}`} 
-                />
-                <span 
-                    className={`
-                        relative z-10 font-black text-2xl italic tracking-tighter text-white drop-shadow-[0_2px_0_rgba(0,0,0,0.8)] translate-y-[40px]
-                        ${isSounding ? 'animate-pulse text-yellow-200' : ''}
-                    `}
-                >
-                    {saveButtonText}
-                </span>
-                <FloatingScore popups={scorePopups} filter="SAVED" />
-            </button>
-        </div>
-
-        <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2 mb-2">
-                <button 
-                    onClick={onSaveFavorite}
-                    className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-gray-300 transition-colors"
-                    title="Save to Favorites"
-                >
-                    <Heart size={14} />
-                </button>
-                <button 
-                    onClick={onToggleRecord}
-                    className={`
-                        flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-[10px] transition-all
-                        ${isRecording 
-                            ? 'bg-red-500 text-white animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.6)]' 
-                            : 'bg-white/10 text-gray-300 border border-white/10 hover:bg-white/20'}
-                    `}
-                >
-                    <div className={`w-2 h-2 rounded-full ${isRecording ? 'bg-white' : 'bg-red-500'}`} />
-                    {isRecording ? 'REC' : 'REC'}
-                </button>
-            </div>
-
-            <div className="flex gap-1 bg-black/60 backdrop-blur p-1 rounded-xl border border-white/10 flex-wrap justify-end max-w-[400px]">
-                {userPatches.map((p, idx) => {
-                    if (!p) {
-                        return (
-                            <button
-                                key={idx}
-                                ref={(el) => (presetBtnRefs.current[idx] = el)}
-                                className="w-6 h-6 rounded border border-white/10 bg-white/5 flex items-center justify-center text-[9px] font-bold text-zinc-700 cursor-default"
-                            >
-                                {idx === 9 ? '0' : idx + 1}
-                            </button>
-                        );
-                    }
-
-                    const isCurrent = currentPreset.description === p.preset.description;
-                    const color = p.preset.physics.colorBase || '#14b8a6'; 
-                    
-                    return (
-                    <button
-                        key={idx}
-                        ref={(el) => (presetBtnRefs.current[idx] = el)}
-                        onMouseDown={() => {
-                            onLoadPatch(p);
-                        }}
-                        style={{
-                            borderColor: color,
-                            backgroundColor: isCurrent ? color : 'rgba(255,255,255,0.05)',
-                            color: isCurrent ? '#000' : color,
-                            boxShadow: isCurrent ? `0 0 10px ${color}` : 'none'
-                        }}
-                        className={`
-                            w-auto px-2 h-6 rounded border flex items-center justify-center text-[9px] font-black uppercase transition-all min-w-[1.5rem]
-                            ${isCurrent ? 'scale-110 z-10' : 'hover:bg-white/10'}
-                        `}
-                        title={p.preset.description}
-                    >
-                        {p.label}
-                    </button>
-                )})}
-            </div>
-            
-            {favorites.length > 0 && (
-                <div className="mt-2 bg-black/60 backdrop-blur rounded-xl border border-white/10 p-2 max-h-32 overflow-y-auto w-48">
-                    <div className="text-[9px] text-gray-500 uppercase font-bold mb-1 px-1">Favorites</div>
-                    {favorites.map((fav, i) => (
-                        <div key={i} className="flex items-center justify-between group p-1 hover:bg-white/5 rounded cursor-pointer" onClick={() => onPresetChange(fav)}>
-                            <span className="text-[9px] text-gray-300 truncate w-32">{fav.physics.name}</span>
-                            <button onClick={(e) => { e.stopPropagation(); onDeleteFavorite(i); }} className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100">
-                                <Trash2 size={10} />
-                            </button>
+      {/* --- RIGHT SIDEBAR (SCORE, FX, PRESETS) --- */}
+      <div className="absolute top-24 right-4 flex flex-col gap-4 items-end w-44 pointer-events-auto z-50">
+           {/* Score Module */}
+           <div className="relative bg-black/90 border border-yellow-500/50 rounded p-2 px-3 shadow-[0_0_15px_rgba(234,179,8,0.2)] w-full">
+                <div className="flex flex-col items-end">
+                    <span className="text-[8px] text-yellow-600 font-bold uppercase tracking-widest mb-1">CREDITS</span>
+                    <span className="font-arcade text-yellow-400 text-xl drop-shadow-[0_0_5px_rgba(234,179,8,0.8)]">{score.toLocaleString().padStart(6, '0')}</span>
+                </div>
+                {/* Score Popups */}
+                <div className="absolute top-full right-0 w-32 pointer-events-none h-32 overflow-visible">
+                    {scorePopups.map(p => (
+                        <div key={p.id} className="absolute right-0 flex flex-col items-end animate-[float-score_1s_ease-out_forwards] whitespace-nowrap">
+                            <span className="text-white font-black text-sm drop-shadow-md">+{p.val}</span>
+                            <span className="text-[8px] font-bold text-yellow-400 tracking-wider">{p.label}</span>
                         </div>
                     ))}
                 </div>
-            )}
+           </div>
 
-            <div className="bg-black/60 backdrop-blur rounded-xl border border-white/10 p-2 mt-2 flex flex-col gap-1 w-[100px]">
-                <FxButton label="Delay" active={fxState.delay} onClick={() => onToggleFx('delay')} icon={Waves} color="cyan" />
-                <FxButton label="Reverb" active={fxState.reverb} onClick={() => onToggleFx('reverb')} icon={Church} color="violet" />
-                <FxButton label="Chorus" active={fxState.chorus} onClick={() => onToggleFx('chorus')} icon={Wind} color="indigo" />
-                <FxButton label="Distort" active={fxState.distortion} onClick={() => onToggleFx('distortion')} icon={Zap} color="orange" />
-                <FxButton label="Saturate" active={fxState.crunch} onClick={() => onToggleFx('crunch')} icon={Scissors} color="pink" />
-                <FxButton label="Phaser" active={fxState.phaser} onClick={() => onToggleFx('phaser')} icon={Disc} color="yellow" />
-                <FxButton label="HiPass" active={fxState.highpass} onClick={() => onToggleFx('highpass')} icon={ActivityIcon} color="emerald" />
-            </div>
+           {/* Leaderboard */}
+           {leaderboard.length > 0 && (
+               <div className="w-full bg-black/80 border border-yellow-500/30 rounded p-2">
+                   <div className="text-[8px] text-yellow-600 font-bold uppercase tracking-widest mb-1 border-b border-yellow-500/20 pb-1">TOP PLAYERS</div>
+                   <div className="flex flex-col gap-0.5">
+                       {leaderboard.map((entry, i) => (
+                           <div key={i} className="flex justify-between items-center text-[9px] font-mono">
+                               <span className="text-yellow-500/80">{i+1}. {entry.name}</span>
+                               <span className="text-yellow-100">{entry.score.toLocaleString()}</span>
+                           </div>
+                       ))}
+                   </div>
+               </div>
+           )}
 
-            <ScoreBoard score={score} popups={scorePopups} />
-            <Leaderboard entries={leaderboard} />
-        </div>
+           {/* Spacer */}
+           <div className="h-8"></div>
+
+           {/* FX Rack */}
+           <Panel className="w-full" title="FX UNIT" color="pink">
+                <div className="grid grid-cols-2 gap-1">
+                   {['delay','reverb','chorus','distortion','phaser','crunch'].map(fx => (
+                       <button 
+                          key={fx} 
+                          onClick={(e) => { 
+                              onToggleFx(fx as keyof FxState);
+                              if (!fxState[fx as keyof FxState]) triggerFeedback(e, 50, '#ec4899'); 
+                          }}
+                          className={`text-[8px] font-bold uppercase border rounded-[2px] px-1 py-0.5 transition-all ${fxState[fx as keyof FxState] ? 'bg-pink-500 border-pink-400 text-black shadow-[0_0_8px_rgba(236,72,153,0.8)]' : 'bg-black border-gray-800 text-gray-600 hover:border-gray-600'}`}
+                       >
+                           {fx.substring(0,4)}
+                       </button>
+                   ))}
+                </div>
+           </Panel>
+
+           {/* Presets Grid */}
+           <Panel className="w-full" title="PATCHES" color="cyan">
+               <div className="grid grid-cols-5 gap-1">
+                    {userPatches.map((p, i) => (
+                        <button 
+                            key={i}
+                            onClick={() => onLoadPatch(p!)}
+                            disabled={!p}
+                            className={`w-6 h-6 rounded-[2px] flex items-center justify-center text-[9px] font-bold transition-all ${p ? 'bg-cyan-900 border border-cyan-500 text-cyan-200 hover:bg-cyan-700 shadow-[0_0_5px_rgba(6,182,212,0.5)]' : 'bg-black border border-gray-800 text-gray-800'}`}
+                        >
+                            {i === 9 ? 0 : i + 1}
+                        </button>
+                    ))}
+               </div>
+           </Panel>
       </div>
 
-      <div className="flex flex-col items-center justify-end pointer-events-auto">
-        {playState === PlayState.IDLE && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
-                <button 
-                    onClick={() => setPlayState(PlayState.PLAYING)}
-                    className="bg-teal-500 hover:bg-teal-400 text-black font-bold text-xl px-12 py-6 rounded-2xl shadow-[0_0_50px_rgba(45,212,191,0.5)] flex items-center gap-4 animate-pulse transition-transform hover:scale-105"
-                >
-                    <Play size={32} fill="black" />
-                    INITIALIZE ENGINE
-                </button>
-            </div>
-        )}
-
-        <div className="w-[98%] max-w-none mx-auto bg-zinc-900 border-4 border-zinc-700 rounded-t-lg shadow-2xl overflow-hidden backdrop-blur-xl relative translate-y-[10px]">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 via-yellow-500 to-teal-500 opacity-80" />
-          <div className="absolute top-1 left-0 w-full h-0.5 bg-black/50" />
-
-          <div className="grid grid-cols-12 divide-x-2 divide-zinc-800 bg-zinc-900 h-40">
-            
-            <div className="col-span-2 p-2 flex flex-col justify-between">
-                <div className="flex items-center gap-2 text-purple-400 mb-1 border-b border-zinc-800 pb-1">
-                    <Cpu size={12} />
-                    <span className="text-[9px] font-black uppercase tracking-widest font-mono">CORE</span>
-                </div>
-                
-                <div className="flex gap-1 mb-2">
-                    <input
-                        className="w-full bg-black/50 border border-zinc-700 rounded-sm px-1 text-[8px] text-white placeholder-zinc-600 h-6 focus:outline-none focus:border-purple-500"
-                        placeholder="Describe sound..."
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        onKeyDown={(e) => e.stopPropagation()}
-                    />
-                    <button 
-                        onClick={handleGenerate}
-                        disabled={isGenerating || !prompt}
-                        className="bg-purple-900/50 border border-purple-700 hover:bg-purple-800 text-purple-300 rounded-sm w-6 h-6 flex items-center justify-center transition-colors disabled:opacity-50"
-                    >
-                        {isGenerating ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                    </button>
-                </div>
-
-                <div className="space-y-1.5">
-                    <div className="flex justify-between text-[7px] text-zinc-500 font-bold uppercase">
-                        <span>MAT</span>
-                        <span className="text-teal-400 font-mono">{currentPreset.physics.name}</span>
-                    </div>
-                    <div className="space-y-1">
-                        <div className="h-1 w-full bg-black rounded-sm overflow-hidden border border-zinc-700">
-                            <div className="h-full bg-blue-500" style={{ width: `${currentPreset.physics.viscosityBase * 100}%` }} />
-                        </div>
-                        <div className="h-1 w-full bg-black rounded-sm overflow-hidden border border-zinc-700">
-                            <div className="h-full bg-orange-500" style={{ width: `${currentPreset.physics.thickeningFactor * 100}%` }} />
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="col-span-4 p-2 flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
-                     <div className="flex items-center gap-1.5 text-pink-400">
-                         <Drum size={12} />
-                         <span className="text-[9px] font-black uppercase tracking-widest font-mono">RHYTHM</span>
-                     </div>
-                     <button 
-                        onClick={onToggleDrums}
-                        className={`w-6 h-3 rounded transition-colors border border-black/30 ${drumSettings.enabled ? 'bg-pink-600 shadow-[0_0_8px_rgba(236,72,153,0.6)]' : 'bg-zinc-700'}`}
-                     >
-                         <div className={`w-1.5 h-full bg-white/80 transition-transform ${drumSettings.enabled ? 'translate-x-3' : ''}`} />
-                     </button>
-                 </div>
-                 
-                 <div className="flex flex-col h-full pt-1 gap-1">
-                     <div className="grid grid-cols-4 gap-0.5">
-                         {['HIPHOP', 'DISCO', 'HOUSE', 'DUBSTEP', 'METAL', 'FUNK', 'ROCK', 'BOOMBAP'].map((g) => (
-                             <button
-                                key={g}
-                                onClick={() => {
-                                    const genre = g as SamplerGenre;
-                                    const presetData = GENRE_PRESETS[genre];
-                                    if (presetData) {
-                                        onDrumChange({
-                                            ...drumSettings,
-                                            genre: genre,
-                                            // Deep copy pattern to avoid mutating constants
-                                            pattern: presetData.pattern.map(step => ({...step}))
-                                        });
-                                        onArpChange({...arpSettings, bpm: presetData.bpm});
-                                    }
-                                }}
-                                className={`
-                                    text-[6px] font-bold py-0.5 px-1 rounded-sm border-b 
-                                    ${drumSettings.genre === g 
-                                        ? 'bg-zinc-800 text-pink-400 border-pink-500' 
-                                        : 'bg-zinc-800/30 text-zinc-600 border-transparent hover:bg-zinc-800'}
-                                `}
-                             >
-                                 {g}
-                             </button>
-                         ))}
-                     </div>
-
-                     <div className="flex-1 flex flex-col gap-0.5 min-h-0 bg-black/20 rounded-sm p-1 border border-zinc-800">
-                         {(['kick', 'snare', 'hihat', 'clap'] as const).map((layer) => (
-                             <div key={layer} className="flex gap-px items-center h-full">
-                                 <div className="w-6 text-[6px] font-bold text-zinc-500 uppercase text-right pr-1">
-                                    {layer === 'hihat' ? 'HAT' : layer.substring(0,3)}
-                                 </div>
-                                 <div className="flex-1 flex gap-px h-full">
-                                     {drumSettings.pattern.map((step, i) => (
-                                         <button 
-                                            key={i}
-                                            onClick={() => {
-                                                const newPattern = [...drumSettings.pattern];
-                                                newPattern[i] = { ...newPattern[i], [layer]: !newPattern[i][layer] };
-                                                onDrumChange({ ...drumSettings, pattern: newPattern });
-                                            }}
-                                            className={`
-                                                flex-1 rounded-[1px] transition-colors
-                                                ${step[layer] 
-                                                    ? (layer === 'kick' ? 'bg-pink-500' : layer === 'snare' ? 'bg-cyan-500' : layer === 'hihat' ? 'bg-yellow-500' : 'bg-purple-500') 
-                                                    : 'bg-zinc-800 hover:bg-zinc-700'}
-                                                ${i === currentStep ? 'brightness-150 border-white/50 border' : ''}
-                                            `}
-                                         />
-                                     ))}
-                                 </div>
-                             </div>
-                         ))}
-                     </div>
-
-                     <div className="flex gap-2 items-center justify-start mt-0.5">
-                        <div className="flex items-center gap-1.5 bg-zinc-800/50 rounded-sm px-1 py-0.5 border border-zinc-700/50 w-20">
-                             <span className="text-[7px] font-bold text-pink-500 min-w-0 flex-shrink-0">DRM</span>
-                             <input 
-                                type="range" min="0" max="1" step="0.01"
-                                value={crossFader}
-                                onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))}
-                                className="flex-1 h-1 bg-black rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-1.5 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:bg-zinc-300 [&::-webkit-slider-thumb]:rounded-[1px] cursor-ew-resize min-w-0"
-                             />
-                             <span className="text-[7px] font-bold text-teal-500 min-w-0 flex-shrink-0">SYN</span>
-                         </div>
-                         <select 
-                            value={drumSettings.kit} 
-                            onChange={(e) => onDrumChange({...drumSettings, kit: e.target.value as DrumKit})}
-                            className="bg-black text-pink-500 text-[8px] font-bold uppercase border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none w-auto"
-                         >
-                            {DRUM_KITS.map(kit => <option key={kit} value={kit}>{kit}</option>)}
-                         </select>
-                         <select 
-                            value={drumSettings.fx} 
-                            onChange={(e) => onDrumChange({...drumSettings, fx: e.target.value as DrumFX})}
-                            className="bg-black text-blue-400 text-[8px] font-bold uppercase border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none w-auto"
-                         >
-                            {DRUM_FX_OPTIONS.map(fx => <option key={fx} value={fx}>{fx.replace('_', ' ')}</option>)}
-                         </select>
-                     </div>
-                 </div>
-            </div>
-
-            <div className="col-span-2 p-2 flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
-                     <div className="flex items-center gap-1 text-orange-400">
-                         <Spline size={12} />
-                         <span className="text-[9px] font-black uppercase tracking-widest font-mono">DYNAMICS</span>
-                     </div>
-                     <button 
-                        onClick={() => onGateChange({...gateSettings, enabled: !gateSettings.enabled})}
-                        className={`w-5 h-3 rounded transition-colors border border-black/30 ${gateSettings.enabled ? 'bg-orange-600 shadow-[0_0_8px_rgba(234,88,12,0.6)]' : 'bg-zinc-700'}`}
-                     >
-                         <div className={`w-1.5 h-full bg-white/80 transition-transform ${gateSettings.enabled ? 'translate-x-2' : ''}`} />
-                     </button>
-                 </div>
-
-                 <div className="flex flex-col gap-2 h-full justify-center">
-                     <div className="space-y-0.5">
-                        <label className="text-[7px] text-zinc-500 font-bold uppercase">Pattern</label>
-                        <select
-                            value={gateSettings.pattern}
-                            onChange={(e) => onGateChange({...gateSettings, pattern: e.target.value as GatePatternName})}
-                            className="w-full bg-black text-orange-400 text-[8px] font-bold uppercase border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none"
-                        >
-                            {Object.keys(GATE_PATTERNS).map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                     </div>
-
-                     <div className="space-y-0.5">
-                        <label className="text-[7px] text-zinc-500 font-bold uppercase">Rate</label>
-                        <select
-                            value={gateSettings.division}
-                            onChange={(e) => onGateChange({...gateSettings, division: e.target.value as GateDivision})}
-                            className="w-full bg-black text-orange-400 text-[8px] font-bold uppercase border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none"
-                        >
-                            {GATE_DIVISIONS.map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
-                     </div>
-                     
-                     <div className="flex items-center gap-1 mt-1">
-                         <span className="text-[7px] text-zinc-500 font-bold w-4">MIX</span>
-                         <div className="w-16">
-                             <VolumeSlider value={gateSettings.mix} onChange={(v) => onGateChange({...gateSettings, mix: v})} />
-                         </div>
-                     </div>
-                 </div>
-            </div>
-
-            <div className="col-span-2 p-2 flex flex-col justify-between">
-                 <div className="flex items-center justify-between mb-1 border-b border-zinc-800 pb-1">
-                     <div className="flex items-center gap-1 text-yellow-400">
-                         <ActivityIcon size={12} />
-                         <span className="text-[9px] font-black uppercase tracking-widest font-mono">SYNTH</span>
-                     </div>
-                 </div>
-                 
-                 <div className="flex flex-col h-full justify-between pt-1 gap-1">
-                     <div className="flex flex-col gap-1">
-                        {[1, 2, 3].map(num => {
-                            const oscKey = `osc${num}Type` as keyof typeof currentPreset.audio;
-                            const type = currentPreset.audio[oscKey] as string;
-                            const volKey = `osc${num}Vol` as keyof typeof currentPreset.audio;
-                            const vol = (currentPreset.audio[volKey] as number) || 0.5;
-
-                            const Icon = type === 'sine' ? WavesIcon : type === 'square' ? Square : type === 'triangle' ? Triangle : type === 'sawtooth' ? ActivityIcon : ActivityIcon;
-                            
-                            return (
-                                <div key={num} className="flex items-center gap-1 bg-black border border-zinc-700 rounded-sm p-0.5 h-6">
-                                    <span className="text-[5px] text-zinc-500 font-bold uppercase w-6">OSC {num}</span>
-                                    <button 
-                                        onClick={() => {
-                                            let types = ['sine', 'sawtooth', 'supersaw', 'square', 'noise', 'noisy_sub'];
-                                            if (num === 3) types = ['sine', 'white', 'pink', 'brown'];
-                                            
-                                            const idx = types.indexOf(type);
-                                            const nextType = types[(idx + 1) % types.length];
-                                            onPresetChange({
-                                                ...currentPreset,
-                                                audio: { ...currentPreset.audio, [oscKey]: nextType }
-                                            });
-                                        }}
-                                        className="text-yellow-500 hover:text-yellow-300 transition-colors flex-1 flex justify-center"
-                                        title={type}
-                                    >
-                                        <Icon size={10} />
-                                    </button>
-                                    <div className="w-8 h-full py-0.5">
-                                        <VolumeSlider value={vol} onChange={(v) => onPresetChange({
-                                            ...currentPreset,
-                                            audio: { ...currentPreset.audio, [volKey]: v }
-                                        })} />
-                                    </div>
-                                </div>
-                            );
-                        })}
-                     </div>
-
-                     <div className="flex justify-between items-end flex-1 gap-1 mt-1 bg-black/30 rounded-sm p-1 border border-zinc-800">
-                        {['attack', 'decay', 'sustain', 'release'].map((param) => {
-                            const val = currentPreset.audio[param as keyof typeof currentPreset.audio] as number;
-                            const max = param === 'sustain' ? 1 : (param === 'release' ? 5 : 2); // Max values
-                            
-                            return (
-                                <div key={param} className="flex flex-col items-center h-full gap-0.5 flex-1">
-                                    <div className="relative w-2 h-full bg-zinc-800 rounded-full overflow-hidden">
-                                        <div 
-                                            className="absolute bottom-0 w-full bg-yellow-500 rounded-b-full"
-                                            style={{ height: `${(val / max) * 100}%` }}
-                                        />
-                                        <input
-                                            type="range" min="0.001" max={max} step="0.01"
-                                            value={val}
-                                            onChange={(e) => onPresetChange({
-                                                ...currentPreset,
-                                                audio: { ...currentPreset.audio, [param]: parseFloat(e.target.value) }
-                                            })}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-slider-vertical"
-                                            style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
-                                        />
-                                    </div>
-                                    <span className="text-[5px] text-zinc-500 font-bold uppercase">{param[0]}</span>
-                                </div>
-                            )
-                        })}
-                     </div>
-                 </div>
-            </div>
-
-            <div className="col-span-2 p-2 flex flex-col justify-between">
-                 <div className="text-[9px] font-black uppercase tracking-widest font-mono text-teal-400 mb-1 border-b border-zinc-800 pb-1 flex items-center gap-1">
-                    <Globe size={10} />
-                    <span>GLOBAL</span>
-                 </div>
-                 
-                 <div className="flex gap-2 h-full items-center">
-                     <div className="flex-1 flex flex-col justify-center gap-1 border-r border-zinc-800 pr-2">
-                        <div className="space-y-0.5">
-                            <label className="text-[6px] text-zinc-500 font-bold uppercase">Root</label>
-                            <select 
-                                value={rootNote} 
-                                onChange={(e) => setRootNote(parseInt(e.target.value))}
-                                className="w-full bg-black text-[8px] font-bold text-teal-500 border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none"
-                            >
-                                {['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'].map((n, i) => <option key={n} value={i}>{n}</option>)}
-                            </select>
-                        </div>
-                        <div className="space-y-0.5">
-                            <label className="text-[6px] text-zinc-500 font-bold uppercase">Scale</label>
-                            <select 
-                                value={selectedScale} 
-                                onChange={(e) => setSelectedScale(e.target.value as any)}
-                                className="w-full bg-black text-[8px] font-bold text-teal-500 border border-zinc-700 rounded-sm px-1 py-0.5 focus:outline-none"
-                            >
-                                {Object.keys(SCALES).map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-                     </div>
-                     
-                     <div className="flex gap-2 items-center justify-end flex-1 h-full">
-                         <div className="flex flex-col items-center gap-0.5">
-                             <button onClick={() => onOctaveChange(octave + 1)} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 p-0.5 rounded-sm"><ChevronUp size={10} /></button>
-                             <div className="text-center font-mono text-[10px] font-bold text-teal-400 w-5 bg-black rounded-sm border border-zinc-800">{octave > 0 ? `+${octave}` : octave}</div>
-                             <button onClick={() => onOctaveChange(octave - 1)} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 p-0.5 rounded-sm"><ChevronDown size={10} /></button>
-                             <div className="text-[6px] text-zinc-500 uppercase font-bold tracking-wider">OCT</div>
-                         </div>
-                         
-                         <div className="flex flex-col items-center gap-0.5 flex-1 items-center justify-center">
-                             <VolumeSlider value={synthVolume} onChange={onSynthVolumeChange} vertical />
-                             <div className="text-[6px] text-zinc-500 uppercase font-bold tracking-wider">VOL</div>
-                         </div>
-                     </div>
-                 </div>
-            </div>
+      {/* --- HUD HEADER --- */}
+      <div className="relative flex justify-between items-start pointer-events-auto z-40 p-4 bg-gradient-to-b from-black/80 to-transparent min-h-[140px]">
+          <div className="flex gap-4 items-start w-1/4">
+             {/* Logo */}
+             <div className="relative group cursor-pointer" onClick={(e) => { if(!isChaosLocked) { triggerFeedback(e, 250, '#d946ef'); onRandomize(); }}}>
+                 <div className="font-arcade text-3xl italic font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 tracking-tighter filter drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]">OOBLECK</div>
+                 <div className="text-[9px] font-bold text-gray-500 tracking-[0.5em] mt-1 ml-1">FLUID SYNTH</div>
+             </div>
           </div>
 
-          <div className="border-t-4 border-zinc-800 bg-zinc-900 p-1 relative shadow-inner">
-               <div className="flex h-20 gap-px relative pt-3 pb-1 px-1 bg-zinc-950 rounded-sm border border-zinc-800 shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)]">
-                     {whiteKeys.map((semitone) => {
-                         const isActive = activeMouseNote === semitone;
-                         const keyFreq = 65.41 * Math.pow(2, semitone / 12);
-                         const isSelected = Math.abs(currentPreset.audio.baseFreq - keyFreq) < 2; 
-                         const isGlowing = isSelected && isSounding;
+          {/* --- TOP CENTER ACTIONS (BIG NEON) --- */}
+          <div className="absolute left-1/2 -translate-x-1/2 top-6 w-full max-w-[486px] h-20 pointer-events-auto">
+              {/* LOCK */}
+              <button 
+                onClick={onToggleChaosLock} 
+                className="group flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform absolute right-1/2 mr-4"
+              >
+                   <div className={`
+                       relative p-4 rounded-full border-4 transition-all duration-300 backdrop-blur-sm
+                       ${isChaosLocked 
+                           ? 'border-red-500 bg-red-900/20 shadow-[0_0_40px_rgba(239,68,68,0.6)]' 
+                           : 'border-green-400 bg-green-900/20 shadow-[0_0_20px_rgba(74,222,128,0.3)] group-hover:shadow-[0_0_40px_rgba(74,222,128,0.6)]'}
+                   `}>
+                       {isChaosLocked ? 
+                           <Lock size={40} className="text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,1)]" /> : 
+                           <Unlock size={40} className="text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,1)]" />
+                       }
+                   </div>
+                   <span className={`font-arcade text-[12px] font-bold tracking-[0.2em] px-3 py-1 rounded bg-black/60 backdrop-blur-md border border-white/10 ${isChaosLocked ? 'text-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'text-green-400'}`}>
+                       {isChaosLocked ? 'LOCKED' : 'UNLOCK'}
+                   </span>
+              </button>
 
-                         return (
-                            <button
-                                key={semitone}
-                                onMouseDown={() => {
-                                    const quantized = quantizeNote(semitone);
-                                    setActiveMouseNote(semitone);
-                                    const freq = 65.41 * Math.pow(2, quantized / 12);
-                                    onNotePlay(freq);
-                                }}
-                                onMouseEnter={(e) => {
-                                    if (e.buttons === 1) {
-                                        const quantized = quantizeNote(semitone);
-                                        setActiveMouseNote(semitone);
-                                        const freq = 65.41 * Math.pow(2, quantized / 12);
-                                        onNotePlay(freq);
-                                    }
-                                }}
-                                className={`
-                                    flex-1 rounded-b-sm relative active:bg-teal-400 transition-colors shadow-sm
-                                    ${isActive ? 'bg-teal-400' : 'bg-[#f0f0f0]'}
-                                    ${isGlowing ? 'shadow-[0_0_15px_rgba(45,212,191,0.8)] bg-teal-100 z-10' : ''}
-                                `}
-                            />
-                         );
-                     })}
-                     
-                     {blackKeys.map((semitone) => {
-                         const whiteKeysBefore = Array.from({ length: semitone }).filter((_, n) => [0, 2, 4, 5, 7, 9, 11].includes(n % 12)).length;
-                         const keyWidthPct = 100 / numWhiteKeys;
-                         const blackKeyWidthPct = 2.0;
-                         const leftPos = (whiteKeysBefore * keyWidthPct) - (blackKeyWidthPct / 2);
-                         
-                         const isActive = activeMouseNote === semitone;
-                         const keyFreq = 65.41 * Math.pow(2, semitone / 12);
-                         const isSelected = Math.abs(currentPreset.audio.baseFreq - keyFreq) < 2;
-                         const isGlowing = isSelected && isSounding;
+              {/* SAVE */}
+              <button 
+                  onClick={(e) => { triggerFeedback(e, 2000, '#22d3ee'); onBigSave(); }}
+                  className="group flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform absolute left-1/2 ml-4"
+              >
+                   <div className="relative p-4 rounded-full border-4 border-cyan-400 bg-cyan-900/20 shadow-[0_0_30px_rgba(34,211,238,0.4)] group-hover:shadow-[0_0_50px_rgba(34,211,238,0.7)] transition-all backdrop-blur-sm">
+                       <ThumbsUp size={40} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,1)]" />
+                       {/* Slot indicator bubble */}
+                       <div className="absolute -top-2 -right-2 w-7 h-7 bg-yellow-400 rounded-full flex items-center justify-center border-2 border-black text-black font-black text-xs shadow-[0_0_10px_rgba(234,179,8,0.8)]">
+                          {nextSaveSlotIndex}
+                       </div>
+                   </div>
+                   <span className="font-arcade text-[12px] font-bold tracking-[0.2em] text-cyan-400 bg-black/60 backdrop-blur-md px-3 py-1 rounded border border-white/10 group-hover:text-cyan-200">
+                       SAVE
+                   </span>
+              </button>
+          </div>
 
-                         return (
-                            <button 
-                                key={semitone}
-                                onMouseDown={() => {
-                                    const quantized = quantizeNote(semitone);
-                                    setActiveMouseNote(semitone);
-                                    const freq = 65.41 * Math.pow(2, quantized / 12);
-                                    onNotePlay(freq);
-                                }}
-                                onMouseEnter={(e) => {
-                                    if (e.buttons === 1) {
-                                        const quantized = quantizeNote(semitone);
-                                        setActiveMouseNote(semitone);
-                                        const freq = 65.41 * Math.pow(2, quantized / 12);
-                                        onNotePlay(freq);
-                                    }
-                                }}
-                                style={{ left: `${leftPos}%`, width: `${blackKeyWidthPct}%` }}
-                                className={`
-                                    absolute top-3 h-3/5 rounded-b-sm z-20 hover:bg-zinc-700 active:bg-teal-600 border-x border-b border-zinc-700 shadow-md
-                                    ${isActive ? 'bg-teal-500' : 'bg-[#1a1a1a]'}
-                                    ${isGlowing ? 'shadow-[0_0_15px_rgba(45,212,191,0.8)] border-teal-400 bg-teal-900' : ''}
-                                `} 
-                            />
-                         );
-                     })}
+          <div className="flex gap-4 items-start w-1/4 justify-end">
+             {/* Sys Panel Removed */}
+          </div>
+      </div>
+
+      {/* --- CENTER ACTIONS (PLAYING) --- */}
+      {playState === PlayState.PLAYING && (
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-[-12px] pointer-events-auto z-30">
+           
+           <div className="relative w-[486px] h-[365px]">
+               {/* LEFT SIDE TOOLBAR (CAM, PLAY, REC) */}
+               <div className="absolute right-[calc(100%+2rem)] top-1/2 -translate-y-1/2 flex flex-col gap-4 items-center z-50">
+                    
+                    {/* CAM */}
+                    <button 
+                        onClick={onToggleCamera} 
+                        className={`group flex flex-col items-center justify-center gap-1 transition-all ${isCameraActive ? 'scale-110' : 'hover:scale-105 active:scale-95'}`}
+                    >
+                            <div className={`p-4 rounded-full border-4 backdrop-blur-md transition-all duration-300 ${isCameraActive ? 'border-green-400 bg-green-500/20 shadow-[0_0_30px_green]' : 'border-green-500/50 bg-black/40 hover:border-green-400 hover:shadow-[0_0_20px_green]'}`}>
+                                <Camera size={32} className={isCameraActive ? "text-green-400 drop-shadow-[0_0_10px_white]" : "text-green-600 group-hover:text-green-400"} />
+                            </div>
+                            <span className={`font-arcade text-[10px] font-bold tracking-widest bg-black/60 px-2 py-0.5 rounded border border-green-500/30 ${isCameraActive ? 'text-green-400 shadow-[0_0_10px_green]' : 'text-green-700 group-hover:text-green-400'}`}>CAM</span>
+                    </button>
+
+                    {/* PLAY */}
+                    <button 
+                        onClick={handlePlayStop} 
+                        className={`group flex flex-col items-center justify-center gap-1 transition-all ${drumSettings.enabled ? 'scale-110' : 'hover:scale-105 active:scale-95'}`}
+                    >
+                            <div className={`p-4 rounded-full border-4 backdrop-blur-md transition-all duration-300 ${drumSettings.enabled ? 'border-pink-500 bg-pink-900/40 shadow-[0_0_30px_rgba(236,72,153,0.6)]' : 'border-pink-500/50 bg-black/40 hover:border-pink-400 hover:shadow-[0_0_20px_rgba(236,72,153,0.4)]'}`}>
+                                {drumSettings.enabled ? <Square size={32} className="text-pink-200 drop-shadow-[0_0_10px_white]" /> : <Play size={32} className="text-pink-600 group-hover:text-pink-400 ml-1" />}
+                            </div>
+                            <span className={`font-arcade text-[10px] font-bold tracking-widest bg-black/60 px-2 py-0.5 rounded border border-pink-500/30 ${drumSettings.enabled ? 'text-pink-200 shadow-[0_0_10px_pink]' : 'text-pink-700 group-hover:text-pink-400'}`}>
+                                {drumSettings.enabled ? 'STOP' : 'PLAY'}
+                            </span>
+                    </button>
+
+                    {/* REC */}
+                    <button 
+                        onClick={onToggleRecord} 
+                        className={`group flex flex-col items-center justify-center gap-1 transition-all ${isRecording ? 'scale-110' : 'hover:scale-105 active:scale-95'}`}
+                    >
+                            <div className={`p-4 rounded-full border-4 backdrop-blur-md transition-all duration-300 ${isRecording ? 'border-red-500 bg-red-600/20 shadow-[0_0_30px_red] animate-pulse' : 'border-red-500/50 bg-black/40 hover:border-red-400 hover:shadow-[0_0_20px_red]'}`}>
+                                <div className={`w-8 h-8 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-900 group-hover:bg-red-500 transition-colors'}`} />
+                            </div>
+                            <span className={`font-arcade text-[10px] font-bold tracking-widest bg-black/60 px-2 py-0.5 rounded border border-red-500/30 ${isRecording ? 'text-red-400 shadow-[0_0_10px_red]' : 'text-red-700 group-hover:text-red-400'}`}>REC</span>
+                    </button>
+
+               </div>
+
+               {/* MAIN CONTROL GRID (2x2) mapped to Webcam Zones */}
+               {/* Superimposed over video: Maximize area, transparent backgrounds */}
+               <div className="w-full h-full grid grid-cols-2 grid-rows-2 gap-1 rounded-xl overflow-hidden">
+                   
+                   {/* TL: CHOP */}
+                   <button 
+                       ref={chopRef}
+                       onClick={(e) => { triggerFeedback(e, 500, '#ef4444'); onChop(); }}
+                       className="group relative w-full h-full border-4 border-white/10 hover:border-red-500/80 bg-black/10 hover:bg-red-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px]"
+                   >
+                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                           <Scissors size={48} className="text-red-500 mb-1 drop-shadow-[0_0_8px_red]" />
+                           <span className="font-arcade text-2xl text-red-500 font-bold tracking-widest bg-black/40 px-2 rounded">CHOP</span>
+                        </div>
+                        {/* Corners */}
+                        <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-red-500/30 group-hover:border-red-500 transition-colors" />
+                   </button>
+
+                   {/* TR: GROWL */}
+                   <button 
+                       ref={growlRef}
+                       onClick={(e) => { triggerFeedback(e, 1000, '#eab308'); onGrowl(); }}
+                       className="group relative w-full h-full border-4 border-white/10 hover:border-yellow-500/80 bg-black/10 hover:bg-yellow-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px]"
+                   >
+                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                           <Skull size={48} className="text-yellow-500 mb-1 drop-shadow-[0_0_8px_yellow]" />
+                           <span className="font-arcade text-2xl text-yellow-500 font-bold tracking-widest bg-black/40 px-2 rounded">GROWL</span>
+                        </div>
+                        {/* Corners */}
+                        <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-yellow-500/30 group-hover:border-yellow-500 transition-colors" />
+                   </button>
+
+                   {/* BL: BACK */}
+                   <button 
+                       ref={backRef}
+                       onClick={(e) => { triggerFeedback(e, 250, '#22d3ee'); onRevertPreset(); }}
+                       className="group relative w-full h-full border-4 border-white/10 hover:border-cyan-500/80 bg-black/10 hover:bg-cyan-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px]"
+                   >
+                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                           <RotateCcw size={48} className="text-cyan-500 mt-1 drop-shadow-[0_0_8px_cyan]" />
+                           <span className="font-arcade text-2xl text-cyan-500 font-bold tracking-widest bg-black/40 px-2 rounded">BACK</span>
+                        </div>
+                        {/* Corners */}
+                        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-cyan-500/30 group-hover:border-cyan-500 transition-colors" />
+                   </button>
+
+                   {/* BR: CHAOS */}
+                   <button 
+                       ref={chaosRef}
+                       onClick={(e) => { if(!isChaosLocked) { triggerFeedback(e, 250, '#d946ef'); onRandomize(); }}} 
+                       disabled={isChaosLocked} 
+                       className={`group relative w-full h-full border-4 border-white/10 hover:border-purple-500/80 bg-black/10 hover:bg-purple-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px] ${isChaosLocked ? 'cursor-not-allowed' : ''}`}
+                   >
+                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
+                           <Wand2 size={48} className={`${isChaosLocked ? 'text-gray-500' : 'text-purple-500'} mt-1 drop-shadow-[0_0_8px_purple]`} />
+                           <span className={`font-arcade text-2xl font-bold tracking-widest bg-black/40 px-2 rounded ${isChaosLocked ? 'text-gray-500' : 'text-purple-500'}`}>CHAOS</span>
+                        </div>
+                        {/* Corners */}
+                        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-purple-500/30 group-hover:border-purple-500 transition-colors" />
+                   </button>
+               </div>
+               
+           </div>
+      </div>
+      )}
+
+      {/* --- START SCREEN --- */}
+      {playState === PlayState.IDLE && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto z-50">
+               <button 
+                  onClick={() => setPlayState(PlayState.PLAYING)}
+                  className="group relative"
+               >
+                   <div className="absolute inset-0 bg-cyan-500 blur-xl opacity-50 group-hover:opacity-80 transition-opacity animate-pulse"></div>
+                   <div className="relative bg-black border-4 border-cyan-500 text-cyan-400 hover:bg-cyan-900 hover:text-white px-12 py-6 rounded font-arcade text-2xl tracking-widest shadow-[0_0_30px_rgba(6,182,212,0.4)] transition-all transform hover:scale-105">
+                       INSERT COIN
+                   </div>
+               </button>
+          </div>
+      )}
+
+      {/* --- GROWL POPUP --- */}
+      {currentGrowlName && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
+               <div className="animate-rough-shake bg-yellow-400 text-black font-black text-9xl px-12 py-6 border-[12px] border-black shadow-[20px_20px_0px_rgba(0,0,0,0.8)] uppercase -rotate-2 whitespace-nowrap font-arcade tracking-tighter mix-blend-hard-light">
+                    {currentGrowlName}
                </div>
           </div>
-        </div>
+      )}
 
+      {/* --- HIGH SCORE INPUT --- */}
+      {showHighScoreInput && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-xl pointer-events-auto">
+              <div className="border-4 border-yellow-500 p-8 rounded-lg bg-black shadow-[0_0_50px_rgba(234,179,8,0.4)] text-center max-w-md w-full relative overflow-hidden">
+                  <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+                  <div className="relative z-10">
+                      <Trophy size={48} className="mx-auto text-yellow-500 mb-4 animate-bounce drop-shadow-[0_0_15px_rgba(234,179,8,0.8)]" />
+                      <h2 className="font-arcade text-2xl text-yellow-400 mb-2">NEW RECORD</h2>
+                      <div className="text-5xl font-mono font-black text-white mb-8 tracking-tighter shadow-black drop-shadow-md">{score.toLocaleString()}</div>
+                      <input 
+                          autoFocus maxLength={8}
+                          value={highScoreName}
+                          onChange={(e) => setHighScoreName(e.target.value.toUpperCase())}
+                          placeholder="INITIALS"
+                          className="bg-zinc-900 border-2 border-zinc-700 text-white text-center text-3xl font-mono font-bold p-3 rounded w-full uppercase focus:outline-none focus:border-yellow-500 mb-4 tracking-widest placeholder:text-gray-700"
+                      />
+                      <button onClick={() => onNameSubmit(highScoreName || "ANON")} className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-black text-lg py-3 rounded uppercase font-arcade border-b-4 border-yellow-800 active:border-b-0 active:translate-y-1">SUBMIT SCORE</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- BOTTOM CYBERDECK (DASHBOARD) --- */}
+      <div className="pointer-events-auto z-40 w-full bg-zinc-950 border-t-4 border-cyan-600 shadow-[0_-10px_50px_rgba(0,0,0,0.9)] relative">
+          
+          {/* Deck Gradient Line */}
+          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 shadow-[0_0_10px_rgba(255,255,255,0.5)] z-10" />
+
+          {/* Main Control Grid */}
+          <div className="grid grid-cols-12 divide-x divide-white/5 h-44 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]">
+              
+              {/* CORE / GENESIS (2 Cols) */}
+              <div className="col-span-2 p-3 flex flex-col gap-2 relative overflow-hidden">
+                  <div className="flex items-center gap-2 text-purple-400 mb-1">
+                      <Cpu size={14} className="animate-pulse" />
+                      <span className="text-[10px] font-black uppercase tracking-widest font-arcade">GENESIS</span>
+                  </div>
+                  
+                  <div className="flex gap-1 mb-2">
+                      <input 
+                          className="w-full bg-black border border-purple-900/50 rounded-sm px-2 text-[9px] font-mono text-purple-100 h-7 focus:outline-none focus:border-purple-500 placeholder:text-purple-900"
+                          placeholder="DESCRIBE SOUND..."
+                          value={prompt}
+                          onChange={(e) => setPrompt(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                      />
+                      <button onClick={handleGenerate} disabled={isGenerating} className="bg-purple-900 border border-purple-700 w-8 h-7 flex items-center justify-center text-purple-200 rounded-sm hover:bg-purple-600 transition-colors">
+                          {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      </button>
+                  </div>
+
+                  <div className="flex-1 bg-black/40 border border-white/5 rounded p-2 flex flex-col justify-center gap-2">
+                      <div className="flex items-center gap-2">
+                          <span className="text-[8px] text-blue-400 font-bold w-8">VISC</span>
+                          <div className="flex-1 h-1.5 bg-gray-900 rounded-full overflow-hidden border border-gray-700">
+                              <div className="h-full bg-blue-500 shadow-[0_0_8px_blue]" style={{width: `${currentPreset.physics.viscosityBase * 100}%`}} />
+                          </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <span className="text-[8px] text-orange-400 font-bold w-8">THICK</span>
+                          <div className="flex-1 h-1.5 bg-gray-900 rounded-full overflow-hidden border border-gray-700">
+                              <div className="h-full bg-orange-500 shadow-[0_0_8px_orange]" style={{width: `${currentPreset.physics.thickeningFactor * 100}%`}} />
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              {/* SEQUENCER (5 Cols) */}
+              <div className="col-span-5 p-3 flex flex-col relative">
+                   <div className="flex items-center justify-between mb-2">
+                       <div className="flex items-center gap-2 text-pink-500">
+                           <Drum size={14} />
+                           <span className="text-[10px] font-black uppercase tracking-widest font-arcade">RHYTHM CORE</span>
+                       </div>
+                       <div className="flex items-center gap-2">
+                           <div className="bg-black border border-pink-900/50 px-1.5 py-0.5 rounded text-[8px] text-pink-400 font-mono">
+                               BPM <span className="text-white font-bold">{arpSettings.bpm}</span>
+                           </div>
+                           <button onClick={onToggleDrums} className={`h-4 px-2 rounded-full border flex items-center gap-1 transition-all ${drumSettings.enabled ? 'bg-pink-600 border-pink-400 text-white' : 'bg-black border-gray-700 text-gray-600'}`}>
+                               <Power size={8} />
+                           </button>
+                       </div>
+                   </div>
+
+                   {/* Genre Selectors */}
+                   <div className="flex gap-1 mb-2 overflow-x-auto pb-1 no-scrollbar mask-image-linear-gradient">
+                       {Object.keys(GENRE_PRESETS).map(g => (
+                           <button 
+                              key={g} 
+                              onClick={() => {
+                                  const genre = g as SamplerGenre;
+                                  const p = GENRE_PRESETS[genre];
+                                  onDrumChange({...drumSettings, genre, pattern: p.pattern.map(s=>({...s}))});
+                                  onArpChange({...arpSettings, bpm: p.bpm});
+                              }}
+                              className={`px-2 py-0.5 rounded-[2px] text-[8px] font-bold border transition-all ${drumSettings.genre === g ? 'bg-pink-500 border-pink-300 text-black shadow-[0_0_10px_rgba(236,72,153,0.4)]' : 'bg-transparent border-gray-800 text-gray-500 hover:text-gray-300'}`}
+                           >
+                               {g}
+                           </button>
+                       ))}
+                   </div>
+
+                   {/* Step Grid */}
+                   <div className="flex-1 flex flex-col gap-1 justify-center">
+                       {(['kick', 'snare', 'hihat', 'clap'] as const).map(layer => (
+                           <div key={layer} className="flex gap-0.5 h-full items-center">
+                               <div className="w-8 text-[7px] font-bold text-gray-500 uppercase text-right pr-2 tracking-wider">{layer.substring(0,3)}</div>
+                               <div className="flex-1 flex gap-px h-3">
+                                   {drumSettings.pattern.map((step, i) => {
+                                       const isOn = step[layer];
+                                       const isCurrent = i === currentStep;
+                                       const color = layer === 'kick' ? 'bg-pink-500' : layer === 'snare' ? 'bg-cyan-500' : layer === 'hihat' ? 'bg-yellow-500' : 'bg-purple-500';
+                                       
+                                       return (
+                                           <button
+                                              key={i}
+                                              onClick={() => {
+                                                  const np = [...drumSettings.pattern];
+                                                  np[i] = {...np[i], [layer]: !np[i][layer]};
+                                                  onDrumChange({...drumSettings, pattern: np});
+                                              }}
+                                              className={`flex-1 transition-all relative overflow-hidden ${isOn ? `${color} shadow-[0_0_5px_currentColor]` : 'bg-[#151515]'} ${isCurrent ? 'brightness-200 z-10 scale-110' : ''}`}
+                                           />
+                                       )
+                                   })}
+                               </div>
+                           </div>
+                       ))}
+                   </div>
+                   
+                   <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/5">
+                       <div className="flex gap-2">
+                           <select value={drumSettings.kit} onChange={(e) => onDrumChange({...drumSettings, kit: e.target.value as DrumKit})} className="bg-black text-pink-300 text-[9px] border border-pink-900/50 rounded px-1 py-0.5 outline-none hover:border-pink-500">
+                               {DRUM_KITS.map(k => <option key={k} value={k}>{k}</option>)}
+                           </select>
+                           <select value={drumSettings.fx} onChange={(e) => onDrumChange({...drumSettings, fx: e.target.value as DrumFX})} className="bg-black text-cyan-300 text-[9px] border border-cyan-900/50 rounded px-1 py-0.5 outline-none hover:border-cyan-500">
+                               {DRUM_FX_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+                           </select>
+                       </div>
+                       
+                       <div className="flex items-center gap-2 bg-black/50 px-2 py-0.5 rounded-full border border-white/5">
+                           <Disc size={10} className="text-pink-500" />
+                           <input type="range" min="0" max="1" step="0.05" value={crossFader} onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))} className="w-16 accent-white h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
+                           <Waves size={10} className="text-cyan-500" />
+                       </div>
+                   </div>
+              </div>
+
+              {/* DYNAMICS (2 Cols) */}
+              <div className="col-span-2 p-3 flex flex-col">
+                  <div className="flex items-center gap-2 text-orange-500 mb-2">
+                      <Activity size={14} />
+                      <span className="text-[10px] font-black uppercase tracking-widest font-arcade">GATING</span>
+                  </div>
+                  
+                  <div className="flex-1 flex flex-col justify-center gap-3 bg-black/20 p-2 rounded border border-white/5">
+                      <div className="flex items-center justify-between">
+                          <span className="text-[8px] text-gray-500 font-bold">MODE</span>
+                          <button onClick={() => onGateChange({...gateSettings, enabled: !gateSettings.enabled})} className={`px-2 py-0.5 text-[8px] font-bold border rounded-[2px] transition-all ${gateSettings.enabled ? 'bg-orange-500 text-black border-orange-400 shadow-[0_0_10px_orange]' : 'bg-black border-gray-700 text-gray-600'}`}>
+                              {gateSettings.enabled ? 'ON' : 'BYPASS'}
+                          </button>
+                      </div>
+                      
+                      <div>
+                          <div className="text-[8px] text-gray-500 mb-1">PATTERN</div>
+                          <select value={gateSettings.pattern} onChange={(e) => onGateChange({...gateSettings, pattern: e.target.value as GatePatternName})} className="w-full bg-black border border-orange-900/50 text-orange-400 text-[9px] rounded px-1 py-1 outline-none focus:border-orange-500">
+                              {Object.keys(GATE_PATTERNS).map(p => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1">
+                          {['1/4','1/8','1/16','1/32'].map(d => (
+                              <button key={d} onClick={() => onGateChange({...gateSettings, division: d as GateDivision})} className={`text-[7px] border rounded-[2px] py-1 transition-all ${gateSettings.division === d ? 'bg-orange-600 text-white border-orange-400' : 'bg-black border-gray-800 text-gray-600 hover:border-gray-600'}`}>
+                                  {d.substring(2)}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+
+              {/* SYNTH (3 Cols) */}
+              <div className="col-span-3 p-3 flex flex-col">
+                  <div className="flex items-center gap-2 text-cyan-500 mb-2">
+                      <Sliders size={14} />
+                      <span className="text-[10px] font-black uppercase tracking-widest font-arcade">OSCILLATOR</span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 flex-1">
+                       {[1,2,3].map(i => {
+                           const oscKey = `osc${i}Type` as keyof typeof currentPreset.audio;
+                           const volKey = `osc${i}Vol` as keyof typeof currentPreset.audio;
+                           
+                           // FIX: Safely access OSC type, defaulting if undefined
+                           const rawType = currentPreset.audio[oscKey];
+                           const typeStr = typeof rawType === 'string' ? rawType : 'sine';
+
+                           return (
+                               <div key={i} className="flex flex-col items-center bg-black/40 border border-white/5 rounded p-1">
+                                   <div className="flex-1 w-full flex justify-center py-2 relative">
+                                       <VolumeSlider vertical value={(currentPreset.audio[volKey] as number) || 0.5} onChange={(v) => onPresetChange({...currentPreset, audio: {...currentPreset.audio, [volKey]: v}})} />
+                                   </div>
+                                   <button 
+                                      className="w-full mt-2 text-[8px] font-mono text-cyan-300 border border-cyan-900/50 bg-cyan-950/50 rounded py-0.5 hover:bg-cyan-900 hover:border-cyan-500 transition-colors uppercase"
+                                      onClick={() => {
+                                          const types = i === 3 ? ['sine','white','pink','brown'] : ['sine','square','sawtooth','triangle','noise','supersaw'];
+                                          const next = types[(types.indexOf(typeStr) + 1) % types.length];
+                                          onPresetChange({...currentPreset, audio: {...currentPreset.audio, [oscKey]: next}});
+                                      }}
+                                   >
+                                       {typeStr.substring(0,3)}
+                                   </button>
+                               </div>
+                           )
+                       })}
+                  </div>
+                  
+                  <div className="grid grid-cols-4 gap-2 mt-2 px-1">
+                       {['attack','decay','sustain','release'].map(p => (
+                           <div key={p} className="flex flex-col items-center group">
+                               <div className="h-8 w-full relative flex items-center justify-center">
+                                   <input 
+                                      type="range" className="absolute w-full h-full opacity-0 cursor-pointer z-10"
+                                      min="0.01" max={p === 'release' ? 5 : 1} step="0.01"
+                                      value={currentPreset.audio[p as keyof typeof currentPreset.audio] as number}
+                                      onChange={(e) => onPresetChange({...currentPreset, audio: {...currentPreset.audio, [p]: parseFloat(e.target.value)}})}
+                                   />
+                                   <div className="w-1 h-full bg-gray-800 rounded-full overflow-hidden">
+                                       <div className="w-full bg-cyan-500 absolute bottom-0" style={{height: `${(currentPreset.audio[p as keyof typeof currentPreset.audio] as number / (p==='release'?5:1))*100}%`}}></div>
+                                   </div>
+                               </div>
+                               <span className="text-[6px] text-gray-500 mt-1 uppercase font-bold group-hover:text-cyan-400">{p.substring(0,1)}</span>
+                           </div>
+                       ))}
+                  </div>
+              </div>
+          </div>
+          
+          {/* KEYBOARD / BOTTOM STRIP */}
+          <div className="h-14 bg-[#080808] border-t border-white/10 flex items-end pb-1 px-1 relative z-20">
+              
+              {/* Controls Left */}
+              <div className="w-32 flex flex-col justify-center items-center px-2 gap-1 h-full border-r border-white/5 mr-1">
+                  <div className="flex gap-1 w-full">
+                      <button onClick={() => onOctaveChange(octave - 1)} className="flex-1 bg-gray-900 text-gray-400 text-[8px] rounded border border-gray-700 hover:bg-gray-800 hover:text-white">-OCT</button>
+                      <div className="px-2 text-[10px] font-mono font-bold text-cyan-400 flex items-center">{octave > 0 ? `+${octave}` : octave}</div>
+                      <button onClick={() => onOctaveChange(octave + 1)} className="flex-1 bg-gray-900 text-gray-400 text-[8px] rounded border border-gray-700 hover:bg-gray-800 hover:text-white">+OCT</button>
+                  </div>
+                  <select value={selectedScale} onChange={(e) => setSelectedScale(e.target.value as any)} className="w-full bg-black text-[9px] text-gray-400 border border-gray-800 rounded outline-none h-4">
+                      {Object.keys(SCALES).map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+              </div>
+              
+              {/* Piano Keys */}
+              <div className="flex-1 relative flex items-end h-full gap-px select-none">
+                  {whiteKeys.map(k => {
+                       const isActive = activeMouseNote === k;
+                       return (
+                           <button 
+                              key={k} 
+                              onMouseDown={(e) => { triggerFeedback(e, 10, '#22d3ee'); onNotePlay(65.41 * Math.pow(2, quantizeNote(k)/12)); setActiveMouseNote(k); }}
+                              className={`h-full flex-1 rounded-b-[2px] border-b-4 transition-all duration-75 ${isActive ? 'bg-cyan-400 border-cyan-600 shadow-[0_0_20px_cyan] z-10 translate-y-px' : 'bg-gray-200 border-gray-400 hover:bg-white'}`}
+                           />
+                       )
+                  })}
+                  
+                  {/* Black Keys Absolute Positioning */}
+                  {blackKeys.map(k => {
+                       const isActive = activeMouseNote === k;
+                       const whiteIndex = whiteKeys.filter(w => w < k).length;
+                       const widthPct = (100 / numWhiteKeys) * 0.65; 
+                       const leftPct = (whiteIndex * (100 / numWhiteKeys)) - (widthPct / 2);
+                       
+                       return (
+                           <button
+                              key={k}
+                              onMouseDown={(e) => { triggerFeedback(e, 10, '#22d3ee'); onNotePlay(65.41 * Math.pow(2, quantizeNote(k)/12)); setActiveMouseNote(k); }}
+                              style={{ left: `calc(${leftPct}% + 1px)`, width: `${widthPct}%` }}
+                              className={`absolute top-0 h-[60%] rounded-b-[2px] border-b-4 border-x border-black z-20 transition-all duration-75 ${isActive ? 'bg-cyan-600 border-cyan-800 shadow-[0_0_15px_cyan] translate-y-px' : 'bg-black border-gray-800 hover:bg-gray-900'}`}
+                           />
+                       )
+                  })}
+              </div>
+              
+              {/* Master Volume */}
+              <div className="w-12 flex flex-col items-center justify-end h-full border-l border-white/5 ml-1 pb-1">
+                   <div className="h-8 w-4 mb-1">
+                       <VolumeSlider vertical value={synthVolume} onChange={onSynthVolumeChange} color="cyan" />
+                   </div>
+                   <span className="text-[6px] font-bold text-gray-600">VOL</span>
+              </div>
+          </div>
       </div>
     </div>
   );

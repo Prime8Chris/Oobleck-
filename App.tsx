@@ -10,22 +10,46 @@ import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenr
 const SLANG_TERMS = ["FRESH", "DOPE", "BITCHIN'", "SICK", "Yoooo", "NASTY", "MINT", "OOF", "FACK"];
 
 const App: React.FC = () => {
+  // --- DEFAULTS & LOADERS ---
+  const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
+  const defaultArp: ArpSettings = { enabled: false, bpm: 86, division: '1/8', mode: 'UP', octaveRange: 1, gate: 0.5, steps: 1 };
+  const defaultDrums: DrumSettings = { enabled: false, volume: 1.0, genre: 'BOOMBAP', kit: 'ACOUSTIC', fx: 'DRY', pattern: GENRE_PRESETS['BOOMBAP'].pattern };
+  const defaultGate: GateSettings = { enabled: false, pattern: 'TRANCE', division: '1/32', mix: 1.0 };
+
+  const loadSession = () => {
+      try {
+          const saved = localStorage.getItem('oobleck_session_state');
+          if (saved) return JSON.parse(saved);
+      } catch (e) { console.error("Session load failed", e); }
+      return null;
+  };
+  const session = loadSession();
+
+  const loadPatches = () => {
+      try {
+          const saved = localStorage.getItem('oobleck_patches');
+          if (saved) return JSON.parse(saved);
+      } catch (e) { console.error("Patches load failed", e); }
+      return null;
+  };
+  const savedPatches = loadPatches();
+
+  // --- STATE ---
   const [playState, setPlayState] = useState<PlayState>(PlayState.IDLE);
-  const [preset, setPreset] = useState<SynthPreset>(DEFAULT_PRESET);
+  const [preset, setPreset] = useState<SynthPreset>(session?.preset || DEFAULT_PRESET);
   
   const [previousPreset, setPreviousPreset] = useState<SynthPreset | null>(null);
   const [previousFxState, setPreviousFxState] = useState<FxState | null>(null);
-  // drumSettings removed from history tracking to prevent reverting
   const [previousGateSettings, setPreviousGateSettings] = useState<GateSettings | null>(null);
   
   const [isRecording, setIsRecording] = useState(false);
-  const [octave, setOctave] = useState(0);
+  const [octave, setOctave] = useState(session?.octave ?? 0);
   const [favorites, setFavorites] = useState<SynthPreset[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
-  const [synthVolume, setSynthVolume] = useState(0.15);
+  const [synthVolume, setSynthVolume] = useState(session?.synthVolume ?? 0.15);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isSounding, setIsSounding] = useState(false);
-  const [crossFader, setCrossFader] = useState(0.5); 
+  const [crossFader, setCrossFader] = useState(session?.crossFader ?? 0.5); 
   
   const [currentGrowlName, setCurrentGrowlName] = useState<string | null>(null);
   const [isChaosLocked, setIsChaosLocked] = useState(false);
@@ -39,6 +63,77 @@ const App: React.FC = () => {
   // Sound Active Points (Flying from mouse to bank)
   const [activePoints, setActivePoints] = useState<{id: number, x: number, y: number, val: number}[]>([]);
   const lastScoreTimeRef = useRef(0);
+
+  // Trigger Signal for Pickup Feedback
+  const [triggerSignal, setTriggerSignal] = useState<{ index: number, id: number } | null>(null);
+
+  // Complex States with Session Restore
+  const [fxState, setFxState] = useState<FxState>(session?.fxState || defaultFx);
+  const [arpSettings, setArpSettings] = useState<ArpSettings>(session?.arpSettings || defaultArp);
+  const [drumSettings, setDrumSettings] = useState<DrumSettings>(session?.drumSettings || defaultDrums);
+  const [gateSettings, setGateSettings] = useState<GateSettings>(session?.gateSettings || defaultGate);
+  
+  const [userPatches, setUserPatches] = useState<(UserPatch | null)[]>(
+      savedPatches || ALL_PRESETS.map((p, i) => ({
+          label: i === 9 ? '0' : (i + 1).toString(),
+          preset: p,
+          fxState: defaultFx,
+          drumSettings: defaultDrums,
+          gateSettings: defaultGate,
+          arpSettings: defaultArp,
+          octave: 0
+      }))
+  );
+  
+  const [saveSlotIndex, setSaveSlotIndex] = useState(session?.saveSlotIndex ?? 0);
+  const [currentSlangIndex, setCurrentSlangIndex] = useState(session?.currentSlangIndex ?? 0);
+
+  const [activeVisualEffect, setActiveVisualEffect] = useState<number | null>(null);
+  
+  const pendingVisualEffectRef = useRef<number | null>(null);
+  
+  const inputRef = useRef<{ 
+    x: number; 
+    y: number; 
+    vx: number; 
+    vy: number; 
+    lastX: number; 
+    lastY: number; 
+    isClicked: boolean 
+  }>({ 
+    x: -1000, y: -1000, vx: 0, vy: 0, lastX: -1000, lastY: -1000, isClicked: false 
+  });
+
+  // Refs to track state in sync loop without closures
+  const arpSettingsRef = useRef(arpSettings);
+  const drumSettingsRef = useRef(drumSettings);
+  const prevDrumEnabledRef = useRef(drumSettings.enabled);
+
+  const baselineGateDivision = useRef<GateDivision>(gateSettings.division);
+  
+  const waitingForDropRef = useRef(false);
+  const dropActionTypeRef = useRef<'GROWL' | 'CHOP' | null>(null);
+  
+  const preGrowlGateSettings = useRef<GateSettings | null>(null);
+  const preGrowlPreset = useRef<SynthPreset | null>(null);
+  const preGrowlFxState = useRef<FxState | null>(null);
+  const preGrowlBaselineGate = useRef<GateDivision>('1/32');
+  
+  const audioEngineRef = useRef<AudioEngine | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const wasSoundingRef = useRef(false);
+
+  // --- PERSISTENCE EFFECTS ---
+  useEffect(() => {
+      const state = {
+          preset, fxState, drumSettings, gateSettings, arpSettings, octave, synthVolume, crossFader, saveSlotIndex, currentSlangIndex
+      };
+      localStorage.setItem('oobleck_session_state', JSON.stringify(state));
+  }, [preset, fxState, drumSettings, gateSettings, arpSettings, octave, synthVolume, crossFader, saveSlotIndex, currentSlangIndex]);
+
+  useEffect(() => {
+      localStorage.setItem('oobleck_patches', JSON.stringify(userPatches));
+  }, [userPatches]);
 
   useEffect(() => {
       // Load Leaderboard
@@ -59,65 +154,16 @@ const App: React.FC = () => {
       }
   }, []);
 
-  const defaultFx: FxState = { delay: false, chorus: false, highpass: false, distortion: false, phaser: false, reverb: false, crunch: false };
-  const defaultArp: ArpSettings = { enabled: false, bpm: 86, division: '1/8', mode: 'UP', octaveRange: 1, gate: 0.5, steps: 1 };
-  const defaultDrums: DrumSettings = { enabled: false, volume: 1.0, genre: 'BOOMBAP', kit: 'ACOUSTIC', fx: 'DRY', pattern: GENRE_PRESETS['BOOMBAP'].pattern };
-  const defaultGate: GateSettings = { enabled: false, pattern: 'TRANCE', division: '1/32', mix: 1.0 };
-
-  const [userPatches, setUserPatches] = useState<(UserPatch | null)[]>(
-      ALL_PRESETS.map((p, i) => ({
-          label: i === 9 ? '0' : (i + 1).toString(),
-          preset: p,
-          fxState: defaultFx,
-          drumSettings: defaultDrums,
-          gateSettings: defaultGate,
-          arpSettings: defaultArp,
-          octave: 0
-      }))
-  );
-  
-  const [saveSlotIndex, setSaveSlotIndex] = useState(0);
-  const [currentSlangIndex, setCurrentSlangIndex] = useState(0);
-
-  const [activeVisualEffect, setActiveVisualEffect] = useState<number | null>(null);
-  
-  const pendingVisualEffectRef = useRef<number | null>(null);
-  
-  const inputRef = useRef<{ 
-    x: number; 
-    y: number; 
-    vx: number; 
-    vy: number; 
-    lastX: number; 
-    lastY: number; 
-    isClicked: boolean 
-  }>({ 
-    x: -1000, y: -1000, vx: 0, vy: 0, lastX: -1000, lastY: -1000, isClicked: false 
-  });
-
-  const [fxState, setFxState] = useState<FxState>(defaultFx);
-  const [arpSettings, setArpSettings] = useState<ArpSettings>(defaultArp);
-  const [drumSettings, setDrumSettings] = useState<DrumSettings>(defaultDrums);
-  const [gateSettings, setGateSettings] = useState<GateSettings>(defaultGate);
-
-  // Refs to track state in sync loop without closures
-  const arpSettingsRef = useRef(arpSettings);
-  const drumSettingsRef = useRef(drumSettings);
-  const prevDrumEnabledRef = useRef(defaultDrums.enabled);
-
-  const baselineGateDivision = useRef<GateDivision>('1/32');
-  
-  const waitingForDropRef = useRef(false);
-  const dropActionTypeRef = useRef<'GROWL' | 'CHOP' | null>(null);
-  
-  const preGrowlGateSettings = useRef<GateSettings | null>(null);
-  const preGrowlPreset = useRef<SynthPreset | null>(null);
-  const preGrowlFxState = useRef<FxState | null>(null);
-  const preGrowlBaselineGate = useRef<GateDivision>('1/32');
-  
-  const audioEngineRef = useRef<AudioEngine | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const wasSoundingRef = useRef(false);
+  useEffect(() => {
+      try {
+          const saved = localStorage.getItem('oobleck_favorites');
+          if (saved) {
+              setFavorites(JSON.parse(saved));
+          }
+      } catch (e) {
+          console.error("Failed to load favorites", e);
+      }
+  }, []);
 
   // --- SCORING LOGIC ---
   const addScore = useCallback((amount: number, label: string) => {
@@ -166,17 +212,6 @@ const App: React.FC = () => {
       setShowHighScoreInput(false);
       setScore(0); // Reset score after entering name
   };
-
-  useEffect(() => {
-      try {
-          const saved = localStorage.getItem('oobleck_favorites');
-          if (saved) {
-              setFavorites(JSON.parse(saved));
-          }
-      } catch (e) {
-          console.error("Failed to load favorites", e);
-      }
-  }, []);
 
   useEffect(() => {
     audioEngineRef.current = new AudioEngine(preset.audio);
@@ -584,6 +619,9 @@ const App: React.FC = () => {
 
 
   const handleZoneTrigger = useCallback((zoneIdx: number, visualEffectIdx?: number) => {
+      // VISUAL FEEDBACK TRIGGER
+      setTriggerSignal({ index: zoneIdx, id: Date.now() });
+
       if (typeof visualEffectIdx === 'number') {
           pendingVisualEffectRef.current = visualEffectIdx;
       }
@@ -727,6 +765,8 @@ const App: React.FC = () => {
         leaderboard={leaderboard}
         showHighScoreInput={showHighScoreInput}
         onNameSubmit={handleNameSubmit}
+
+        triggerSignal={triggerSignal}
       />
     </div>
   );
