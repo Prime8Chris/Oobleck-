@@ -15,7 +15,7 @@ const App: React.FC = () => {
   
   const [previousPreset, setPreviousPreset] = useState<SynthPreset | null>(null);
   const [previousFxState, setPreviousFxState] = useState<FxState | null>(null);
-  const [previousDrumSettings, setPreviousDrumSettings] = useState<DrumSettings | null>(null);
+  // drumSettings removed from history tracking to prevent reverting
   const [previousGateSettings, setPreviousGateSettings] = useState<GateSettings | null>(null);
   
   const [isRecording, setIsRecording] = useState(false);
@@ -326,21 +326,21 @@ const App: React.FC = () => {
 
 
   const handleRevertPreset = useCallback(() => {
-      addScore(150, "RUN BACK");
+      addScore(250, "RUN BACK");
       if (previousPreset) {
           const tempPreset = preset;
           const tempFx = fxState;
-          const tempDrums = drumSettings;
           const tempGate = gateSettings;
           
+          // DRUMS ARE NOT REVERTED - PRESERVE CURRENT RHYTHM
           setPreset(previousPreset);
           setFxState(previousFxState || defaultFx);
-          setDrumSettings(previousDrumSettings || defaultDrums);
+          // Gate Logic
           setGateSettings(previousGateSettings || defaultGate);
           
           setPreviousPreset(tempPreset);
           setPreviousFxState(tempFx);
-          setPreviousDrumSettings(tempDrums);
+          // Drums are independent now
           setPreviousGateSettings(tempGate);
           
           if (previousGateSettings) {
@@ -351,19 +351,20 @@ const App: React.FC = () => {
              audioEngineRef.current.cancelGrowl(); 
           }
       } else {
+          // If no history, just ensure we aren't stuck
           if (audioEngineRef.current) audioEngineRef.current.cancelGrowl();
       }
       setCurrentGrowlName(null);
-  }, [previousPreset, preset, fxState, drumSettings, gateSettings, addScore]);
+  }, [previousPreset, preset, fxState, gateSettings, addScore]);
 
   const handleRandomize = useCallback(() => {
     if (isChaosLocked) return;
     
-    addScore(1000, "CHAOS");
+    addScore(250, "CHAOS");
 
     setPreviousPreset(preset);
     setPreviousFxState(fxState);
-    setPreviousDrumSettings(drumSettings);
+    // drumSettings not in history
     setPreviousGateSettings(gateSettings);
 
     const randomPreset = ALL_PRESETS[Math.floor(Math.random() * ALL_PRESETS.length)];
@@ -399,7 +400,7 @@ const App: React.FC = () => {
     setGateSettings(newGate);
     baselineGateDivision.current = '1/32';
     
-    // Force Drum Enable on Chaos
+    // Force Drum Enable on Chaos, but DO NOT change the pattern
     if (!drumSettings.enabled) {
         setDrumSettings(prev => ({ ...prev, enabled: true }));
     }
@@ -413,17 +414,22 @@ const App: React.FC = () => {
       
       let targetGate = preGrowlGateSettings.current;
       
+      // RESTORE SYNTH & FX from SNAPSHOT (Fixes "Reverting to previous/history" bug)
+      // CHOP also snapshots now, so restore for both types to be safe and consistent
       if (preGrowlPreset.current) setPreset(preGrowlPreset.current);
       if (preGrowlFxState.current) setFxState(preGrowlFxState.current);
       
       if (type === 'GROWL') {
-          setActiveVisualEffect(null); 
+          setActiveVisualEffect(null); // Clear growl visual
       }
       
+      // Fallback if gate was somehow unset or undefined
       if (!targetGate) {
+          // Default behavior for drop fallback
           targetGate = { ...gateSettings, enabled: true, division: '1/32' };
       }
       
+      // Force imperative update to prevent race conditions
       if (audioEngineRef.current && targetGate) {
           audioEngineRef.current.setGateSettings(targetGate);
       }
@@ -436,8 +442,9 @@ const App: React.FC = () => {
   }, [gateSettings]);
 
   const handleGrowl = useCallback(() => {
-      addScore(500, "GRRRR!");
+      addScore(1000, "GRRRR!");
       
+      // SNAPSHOT CURRENT STATE
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
       preGrowlFxState.current = fxState;
@@ -450,11 +457,13 @@ const App: React.FC = () => {
       
       setCurrentGrowlName(names[Math.floor(Math.random() * names.length)]);
       
+      // Trigger Visual Glitch
       const randomVisual = Math.floor(Math.random() * 5);
       setActiveVisualEffect(randomVisual);
 
       if (audioEngineRef.current) {
           audioEngineRef.current.triggerGrowl(engineGrowlId);
+          // Instant imperative update
           audioEngineRef.current.setGateSettings({...gateSettings, enabled: false});
       }
       
@@ -463,6 +472,7 @@ const App: React.FC = () => {
       if (drumSettings.enabled) {
           waitingForDropRef.current = true;
       } else {
+          // Fallback if no drums: Revert after 1s using SNAPSHOT logic (not handleRevertPreset)
           setTimeout(() => {
               executeDropRevert('GROWL');
           }, 1000);
@@ -470,7 +480,7 @@ const App: React.FC = () => {
   }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore]);
 
   const handleChop = useCallback(() => {
-      addScore(250, "CHOP");
+      addScore(500, "CHOP");
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
       preGrowlFxState.current = fxState;
@@ -540,30 +550,37 @@ const App: React.FC = () => {
   }, [preset, fxState, drumSettings, arpSettings, octave, saveSlotIndex, currentSlangIndex, addScore]);
 
   const handleLoadPatch = useCallback((patch: UserPatch) => {
-      const wasDrumming = drumSettings.enabled;
-
+      // Set History
       setPreviousPreset(preset);
       setPreviousFxState(fxState);
-      setPreviousDrumSettings(drumSettings);
+      // drumSettings removed from history tracking
+      // setPreviousDrumSettings(drumSettings); 
       setPreviousGateSettings(gateSettings);
 
       setPreset(patch.preset);
       setFxState(patch.fxState);
       
-      const newDrums = { ...patch.drumSettings, enabled: wasDrumming || patch.drumSettings.enabled };
-      setDrumSettings(newDrums);
+      // DRUM SETTINGS are NOT loaded from patch.
+      // Rhythm pattern remains independent.
+      
+      // Keep gate independent
+      // setGateSettings(patch.gateSettings); 
       
       setArpSettings(patch.arpSettings);
       setOctave(patch.octave);
       
+      // Update Engine
       if (audioEngineRef.current) {
           audioEngineRef.current.setParams(patch.preset.audio);
           audioEngineRef.current.setFx(patch.fxState);
-          audioEngineRef.current.setDrumSettings(newDrums);
+          // Drums not updated
+          // audioEngineRef.current.setDrumSettings(newDrums);
+          // Gate not updated
+          // audioEngineRef.current.setGateSettings(patch.gateSettings);
           audioEngineRef.current.setArpSettings(patch.arpSettings);
           audioEngineRef.current.setOctave(patch.octave);
       }
-  }, [preset, fxState, drumSettings, gateSettings, octave]);
+  }, [preset, fxState, gateSettings, octave]);
 
 
   const handleZoneTrigger = useCallback((zoneIdx: number, visualEffectIdx?: number) => {
@@ -578,11 +595,13 @@ const App: React.FC = () => {
       } else if (zoneIdx === 2) { 
           const wasDrumming = drumSettings.enabled;
           handleRevertPreset();
+          // Ensure revert doesn't kill drums if they were running (redundant with new logic but safe)
           if (wasDrumming) {
               setDrumSettings(prev => ({...prev, enabled: true}));
               if(audioEngineRef.current) audioEngineRef.current.setDrumSettings({...drumSettings, enabled: true});
           }
       } else if (zoneIdx === 3) { 
+          // STRICT CHAOS LOCK GUARD
           if (!isChaosLocked) {
               handleRandomize();
           }
