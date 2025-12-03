@@ -60,8 +60,7 @@ const App: React.FC = () => {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [showHighScoreInput, setShowHighScoreInput] = useState(false);
   
-  // Sound Active Points (Flying from mouse to bank)
-  const [activePoints, setActivePoints] = useState<{id: number, x: number, y: number, val: number}[]>([]);
+  // Scoring Timer
   const lastScoreTimeRef = useRef(0);
 
   // Trigger Signal for Pickup Feedback
@@ -108,6 +107,7 @@ const App: React.FC = () => {
   const arpSettingsRef = useRef(arpSettings);
   const drumSettingsRef = useRef(drumSettings);
   const prevDrumEnabledRef = useRef(drumSettings.enabled);
+  const playStateRef = useRef(playState);
 
   const baselineGateDivision = useRef<GateDivision>(gateSettings.division);
   
@@ -134,6 +134,10 @@ const App: React.FC = () => {
   useEffect(() => {
       localStorage.setItem('oobleck_patches', JSON.stringify(userPatches));
   }, [userPatches]);
+
+  useEffect(() => {
+    playStateRef.current = playState;
+  }, [playState]);
 
   useEffect(() => {
       // Load Leaderboard
@@ -221,8 +225,8 @@ const App: React.FC = () => {
             setCurrentStep(audioEngineRef.current.getCurrentStep());
         }
         
-        // Sound Active Scoring Loop (Only if drums are enabled)
-        if (wasSoundingRef.current && drumSettingsRef.current.enabled) {
+        // Continuous Scoring Loop - now triggered by Sounding state regardless of drums
+        if (wasSoundingRef.current && playStateRef.current === PlayState.PLAYING) {
             const now = Date.now();
             const bpm = arpSettingsRef.current.bpm || 120;
             const msPer32nd = (60000 / bpm) / 8;
@@ -231,15 +235,7 @@ const App: React.FC = () => {
                 lastScoreTimeRef.current = now;
                 const points = 5;
                 setScore(s => s + points);
-                
-                const x = inputRef.current.x > -100 ? inputRef.current.x : window.innerWidth / 2;
-                const y = inputRef.current.y > -100 ? inputRef.current.y : window.innerHeight / 2;
-                
-                const id = now + Math.random();
-                setActivePoints(prev => [...prev, { id, x, y, val: points }]);
-                setTimeout(() => {
-                    setActivePoints(prev => prev.filter(p => p.id !== id));
-                }, 800); 
+                // Note: Visual particles are now handled entirely by UIOverlay via inputRef
             }
         }
 
@@ -760,13 +756,13 @@ const App: React.FC = () => {
         
         score={score}
         scorePopups={scorePopups}
-        activePoints={activePoints}
         
         leaderboard={leaderboard}
         showHighScoreInput={showHighScoreInput}
         onNameSubmit={handleNameSubmit}
 
         triggerSignal={triggerSignal}
+        inputRef={inputRef}
       />
     </div>
   );

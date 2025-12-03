@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SynthPreset, PlayState, FxState, ArpSettings, DrumSettings, SamplerGenre, GateSettings, GatePatternName, GateDivision, DrumKit, UserPatch, DrumFX, LeaderboardEntry } from '../types';
-import { ALL_PRESETS, GATE_PATTERNS, DRUM_KITS, DRUM_FX_OPTIONS, GENRE_PRESETS } from '../constants';
-import { Loader2, Sparkles, Lock, Unlock, Trophy, Save, RotateCcw, Scissors, Skull, Wand2, Cpu, Drum, Activity, Waves, Power, Disc, Mic, Camera, Sliders, ThumbsUp, Play, Square, Circle } from 'lucide-react';
+import { GATE_PATTERNS, DRUM_KITS, DRUM_FX_OPTIONS, GENRE_PRESETS } from '../constants';
+import { Loader2, Sparkles, Lock, Unlock, Trophy, Save, RotateCcw, Scissors, Skull, Wand2, Cpu, Drum, Activity, Waves, Power, Disc, Mic, Camera, Sliders, ThumbsUp, Play, Square, Circle, Monitor, Grid, Droplets, Zap, Sunset, Cloud, Radio, Hexagon, Triangle } from 'lucide-react';
 import { generatePreset } from '../services/geminiService';
 
 interface Props {
@@ -67,7 +67,6 @@ interface Props {
   // Score
   score: number;
   scorePopups: {id: number, val: number, label: string}[];
-  activePoints: {id: number, x: number, y: number, val: number}[];
   
   // Leaderboard
   leaderboard: LeaderboardEntry[];
@@ -76,6 +75,13 @@ interface Props {
 
   // Trigger Signal for Pickup Feedback
   triggerSignal: { index: number, id: number } | null;
+  
+  // Input Ref for Visuals
+  inputRef: React.MutableRefObject<{ 
+      x: number; 
+      y: number; 
+      isClicked: boolean;
+  }>;
 }
 
 interface TriggerBurst {
@@ -86,29 +92,250 @@ interface TriggerBurst {
     color: string;
 }
 
+interface ScoreParticle {
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    val: number;
+    color: string;
+    life: number;
+    scale: number;
+}
+
+type Theme = 'CYBER' | 'RETRO' | 'AERO' | 'CYBERPUNK' | 'SYNTHWAVE' | 'DREAM' | 'ATOMIC' | 'BRUTALIST' | 'TRON' | 'FUTURE' | 'MIAMI' | 'NEOGRID';
+
+// --- THEME DEFINITIONS ---
+const THEMES: Record<Theme, any> = {
+    CYBER: {
+        container: "font-sans text-gray-200",
+        panel: "bg-black/90 backdrop-blur-sm border-2 rounded-lg border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.15)]",
+        panelTitle: "bg-cyan-900 text-cyan-100 border border-black/50 rounded-sm font-black tracking-widest uppercase",
+        header: "bg-gradient-to-b from-black/80 to-transparent",
+        deck: "bg-zinc-950 border-t-4 border-cyan-600 shadow-[0_-10px_50px_rgba(0,0,0,0.9)]",
+        accent: "cyan",
+        button: "bg-black border border-gray-800 text-gray-600 hover:border-gray-600 rounded-[2px]",
+        buttonActive: "bg-cyan-500 border-cyan-400 text-black shadow-[0_0_8px_rgba(6,182,212,0.8)] rounded-[2px]",
+        keyWhite: "bg-gray-200 border-gray-400 hover:bg-white",
+        keyWhiteActive: "bg-cyan-200 border-cyan-500",
+        keyBlack: "bg-black border-gray-800",
+        keyBlackActive: "bg-pink-400 border-pink-600",
+        bigButton: "rounded-full border-4 border-cyan-400 bg-cyan-900/20 shadow-[0_0_30px_rgba(34,211,238,0.4)] backdrop-blur-sm",
+        fontMain: "font-arcade",
+        knobTrack: "bg-[#111] border border-[#333] rounded-full",
+        knobFill: "bg-cyan-500 shadow-[0_0_10px_cyan]"
+    },
+    RETRO: {
+        container: "font-mono text-black",
+        panel: "bg-[#c0c0c0] border-2 border-t-white border-l-white border-b-black border-r-black shadow-none",
+        panelTitle: "bg-blue-800 text-white font-bold px-2",
+        header: "bg-[#c0c0c0] border-b-2 border-white shadow-sm h-auto pb-2",
+        deck: "bg-[#c0c0c0] border-t-2 border-white shadow-none",
+        accent: "blue",
+        button: "bg-[#c0c0c0] border-t-white border-l-white border-b-black border-r-black border-2 text-black active:border-t-black active:border-l-black",
+        buttonActive: "bg-blue-800 border-t-black border-l-black border-b-white border-r-white border-2 text-white",
+        keyWhite: "bg-white border-b-black border-r-black border-l-white border-t-white hover:bg-gray-100",
+        keyWhiteActive: "bg-black border-black",
+        keyBlack: "bg-black border-b-white border-r-white border-l-black border-t-black",
+        keyBlackActive: "bg-red-800 border-red-900",
+        bigButton: "border-2 bg-[#c0c0c0] border-t-white border-l-white border-b-black border-r-black group-hover:bg-gray-300",
+        fontMain: "font-mono",
+        knobTrack: "bg-gray-400 border-inset border-2 border-gray-600 rounded-full",
+        knobFill: "bg-blue-800"
+    },
+    AERO: {
+        container: "font-sans text-white",
+        panel: "border border-white/40 bg-white/10 backdrop-blur-xl shadow-xl rounded-2xl",
+        panelTitle: "bg-white/20 text-white font-bold px-3 rounded-full border border-white/20 shadow-sm backdrop-blur-md",
+        header: "bg-white/10 backdrop-blur-lg border-b border-white/20 rounded-b-3xl mx-4 mt-0 shadow-lg",
+        deck: "bg-white/10 border-t border-white/20 backdrop-blur-2xl shadow-[0_-10px_40px_rgba(255,255,255,0.1)] rounded-t-3xl mx-4 mb-0",
+        accent: "white",
+        button: "bg-white/20 text-white/60 hover:bg-white/40 rounded-full",
+        buttonActive: "bg-white text-cyan-600 shadow-md rounded-full",
+        keyWhite: "bg-white/80 border-white/50 hover:bg-white shadow-md",
+        keyWhiteActive: "bg-cyan-200 border-cyan-400 shadow-inner",
+        keyBlack: "bg-black/80 border-black/50 hover:bg-black/60 shadow-lg",
+        keyBlackActive: "bg-pink-400/80 border-pink-500",
+        bigButton: "rounded-3xl bg-cyan-500/20 backdrop-blur-md border border-white/40 shadow-lg group-hover:bg-cyan-500/40",
+        fontMain: "font-sans",
+        knobTrack: "bg-white/20 border border-white/10 rounded-full",
+        knobFill: "bg-white/80 shadow-[0_0_10px_white]"
+    },
+    CYBERPUNK: {
+        container: "font-sans text-yellow-400",
+        panel: "bg-[#1a1a1a] border-2 border-yellow-400 clip-path-polygon shadow-[5px_5px_0px_rgba(250,204,21,0.2)]",
+        panelTitle: "bg-yellow-400 text-black font-black uppercase tracking-tighter px-2 transform skew-x-[-10deg]",
+        header: "bg-zinc-900 border-b-2 border-yellow-400",
+        deck: "bg-[#0a0a0a] border-t-2 border-yellow-400",
+        accent: "yellow",
+        button: "bg-zinc-800 border border-yellow-400/30 text-yellow-400/50 hover:bg-yellow-400/20",
+        buttonActive: "bg-yellow-400 text-black font-black border border-yellow-400",
+        keyWhite: "bg-zinc-300 border-zinc-500",
+        keyWhiteActive: "bg-yellow-400 border-yellow-600",
+        keyBlack: "bg-zinc-800 border-zinc-900",
+        keyBlackActive: "bg-red-500 border-red-700",
+        bigButton: "bg-yellow-400 text-black border-2 border-black shadow-[4px_4px_0px_black] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all rounded-none",
+        fontMain: "font-sans",
+        knobTrack: "bg-zinc-800 border border-yellow-400/50 rounded-full",
+        knobFill: "bg-yellow-400"
+    },
+    SYNTHWAVE: {
+        container: "font-arcade text-pink-300",
+        panel: "bg-[#240046]/80 border border-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.4)] rounded-lg",
+        panelTitle: "text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 font-bold italic",
+        header: "bg-gradient-to-b from-[#240046] to-transparent",
+        deck: "bg-[#180030] border-t border-pink-500 shadow-[0_-5px_20px_rgba(236,72,153,0.3)]",
+        accent: "pink",
+        button: "bg-purple-900/50 border border-purple-500/50 text-purple-300 hover:bg-purple-800",
+        buttonActive: "bg-pink-500 text-white border border-pink-400 shadow-[0_0_10px_#ec4899]",
+        keyWhite: "bg-purple-200 border-purple-400 hover:bg-white",
+        keyWhiteActive: "bg-pink-200 border-pink-400 shadow-[0_0_15px_pink]",
+        keyBlack: "bg-[#1a0b2e] border-purple-900",
+        keyBlackActive: "bg-cyan-500 border-cyan-400 shadow-[0_0_15px_cyan]",
+        bigButton: "rounded-full border-2 border-pink-500 bg-black shadow-[0_0_20px_inset_rgba(236,72,153,0.5)] hover:shadow-[0_0_30px_rgba(236,72,153,0.8)]",
+        fontMain: "font-arcade",
+        knobTrack: "bg-[#0f0518] border border-pink-500/30 rounded-full",
+        knobFill: "bg-gradient-to-r from-cyan-500 to-pink-500"
+    },
+    DREAM: {
+        container: "font-sans text-slate-600",
+        panel: "bg-white/80 border border-white shadow-xl rounded-[2rem]",
+        panelTitle: "bg-white text-sky-500 font-black px-4 py-1 rounded-full shadow-sm text-xs tracking-wider",
+        header: "bg-white/70 backdrop-blur-xl border-b border-white/50 rounded-b-[3rem] mx-2 shadow-sm",
+        deck: "bg-white/70 backdrop-blur-xl border-t border-white/50 rounded-t-[3rem] mx-2 shadow-lg",
+        accent: "sky",
+        button: "bg-white border border-sky-100 text-sky-300 hover:text-sky-500 rounded-xl shadow-sm",
+        buttonActive: "bg-sky-400 text-white rounded-xl shadow-[0_4px_12px_rgba(56,189,248,0.4)] transform scale-105",
+        keyWhite: "bg-white border-slate-100 shadow-sm rounded-b-lg",
+        keyWhiteActive: "bg-sky-200 border-sky-300",
+        keyBlack: "bg-slate-700 border-slate-800 rounded-b-lg",
+        keyBlackActive: "bg-indigo-400 border-indigo-500",
+        bigButton: "bg-gradient-to-br from-white to-sky-50 border border-white shadow-[8px_8px_16px_rgba(56,189,248,0.15),-4px_-4px_12px_white] rounded-2xl hover:scale-105 transition-transform",
+        fontMain: "font-sans",
+        knobTrack: "bg-slate-100 rounded-full",
+        knobFill: "bg-sky-400 rounded-full"
+    },
+    ATOMIC: {
+        container: "font-mono text-teal-900",
+        panel: "bg-[#f4f1ea] border-2 border-teal-700 rounded-lg shadow-[4px_4px_0px_#0f766e]",
+        panelTitle: "bg-teal-700 text-[#fdfbf7] px-2 font-bold tracking-widest border border-teal-900",
+        header: "bg-[#f0ece2] border-b-2 border-teal-700",
+        deck: "bg-[#e8e4d8] border-t-2 border-teal-700",
+        accent: "teal",
+        button: "bg-[#e8e4d8] border border-teal-700/30 text-teal-800/60 hover:bg-teal-700/10 rounded-sm",
+        buttonActive: "bg-red-500 text-white border-2 border-red-700 rounded-full",
+        keyWhite: "bg-[#fdfbf7] border-teal-900/20",
+        keyWhiteActive: "bg-teal-200 border-teal-700",
+        keyBlack: "bg-teal-900 border-black",
+        keyBlackActive: "bg-orange-500 border-orange-700",
+        bigButton: "bg-[#fdfbf7] border-4 border-teal-700 rounded-full shadow-[6px_6px_0px_rgba(13,148,136,0.2)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all",
+        fontMain: "font-mono",
+        knobTrack: "bg-[#d6d3c9] border border-teal-700 rounded-full",
+        knobFill: "bg-red-500"
+    },
+    BRUTALIST: {
+        container: "font-mono text-black",
+        panel: "bg-white border-4 border-black shadow-[8px_8px_0px_black] rounded-none",
+        panelTitle: "bg-black text-white px-2 uppercase font-bold tracking-tighter transform -translate-y-4 border-2 border-white inline-block",
+        header: "bg-white border-b-4 border-black",
+        deck: "bg-white border-t-4 border-black",
+        accent: "black",
+        button: "bg-white border-2 border-black hover:bg-black hover:text-white transition-none rounded-none font-bold uppercase",
+        buttonActive: "bg-black text-white border-2 border-black transition-none rounded-none",
+        keyWhite: "bg-white border-2 border-black hover:bg-gray-200",
+        keyWhiteActive: "bg-black border-2 border-black",
+        keyBlack: "bg-black border-2 border-white",
+        keyBlackActive: "bg-white border-4 border-black",
+        bigButton: "bg-white border-4 border-black hover:bg-black hover:text-white rounded-none shadow-[6px_6px_0px_black] transition-none active:translate-x-1 active:translate-y-1 active:shadow-none",
+        fontMain: "font-mono",
+        knobTrack: "bg-white border-2 border-black rounded-full",
+        knobFill: "bg-black"
+    },
+    TRON: {
+        container: "font-arcade text-cyan-400",
+        panel: "bg-black/90 border border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4),inset_0_0_20px_rgba(6,182,212,0.1)] rounded-none",
+        panelTitle: "text-cyan-400 bg-black border border-cyan-500 px-2 tracking-[0.2em] uppercase text-xs shadow-[0_0_10px_cyan]",
+        header: "bg-black/80 border-b border-cyan-500/50 shadow-[0_0_20px_cyan]",
+        deck: "bg-black/90 border-t border-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.3)]",
+        accent: "cyan",
+        button: "bg-black border border-cyan-500/30 text-cyan-500/50 hover:bg-cyan-900/30 hover:text-cyan-400 hover:border-cyan-400",
+        buttonActive: "bg-cyan-500/20 text-cyan-100 border border-cyan-400 shadow-[0_0_10px_cyan]",
+        keyWhite: "bg-black border border-cyan-800 hover:bg-cyan-900/30",
+        keyWhiteActive: "bg-cyan-400 border border-cyan-200 shadow-[0_0_20px_cyan]",
+        keyBlack: "bg-black border border-orange-800",
+        keyBlackActive: "bg-orange-500 border border-orange-400 shadow-[0_0_20px_orange]",
+        bigButton: "rounded-full bg-black border-2 border-cyan-500 shadow-[0_0_15px_cyan,inset_0_0_15px_cyan] hover:bg-cyan-900/40",
+        fontMain: "font-arcade",
+        knobTrack: "bg-[#050505] border border-cyan-900 rounded-full",
+        knobFill: "bg-cyan-400 shadow-[0_0_10px_cyan]"
+    },
+    FUTURE: {
+        container: "font-sans text-slate-800",
+        panel: "bg-slate-50/80 backdrop-blur-xl border border-white/60 rounded-[20px] shadow-[0_20px_40px_-10px_rgba(0,0,0,0.1),inset_0_0_0_1px_rgba(255,255,255,0.5)]",
+        panelTitle: "bg-slate-800 text-white px-3 py-0.5 rounded-full text-[9px] tracking-[0.2em] font-bold uppercase",
+        header: "bg-slate-100/60 backdrop-blur-2xl border-b border-white/20 mx-4 mt-2 rounded-2xl shadow-sm",
+        deck: "bg-slate-100/60 backdrop-blur-2xl border-t border-white/20 mx-4 mb-2 rounded-2xl shadow-lg",
+        accent: "indigo",
+        button: "bg-white border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-all duration-300",
+        buttonActive: "bg-indigo-600 text-white shadow-[0_10px_20px_-5px_rgba(79,70,229,0.4)] rounded-lg transform scale-[1.02]",
+        keyWhite: "bg-white border-slate-100 rounded-b-xl shadow-sm hover:shadow-md transition-all",
+        keyWhiteActive: "bg-indigo-50 border-indigo-200 shadow-inner",
+        keyBlack: "bg-slate-800 border-slate-900 rounded-b-lg shadow-lg",
+        keyBlackActive: "bg-indigo-500 border-indigo-600 shadow-[0_0_15px_rgba(99,102,241,0.5)]",
+        bigButton: "bg-white border border-slate-100 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.1),inset_0_-4px_0_0_rgba(0,0,0,0.05)] rounded-[24px] hover:-translate-y-1 transition-transform",
+        fontMain: "font-sans",
+        knobTrack: "bg-slate-200 rounded-full",
+        knobFill: "bg-indigo-600 rounded-full shadow-[0_0_10px_rgba(79,70,229,0.4)]"
+    },
+    MIAMI: {
+        container: "font-sans text-pink-500",
+        panel: "bg-[#fffef0] border-2 border-pink-500 shadow-[6px_6px_0px_#2dd4bf]",
+        panelTitle: "bg-pink-500 text-white px-3 -skew-x-12 font-black uppercase text-xs tracking-wide shadow-[2px_2px_0px_#2dd4bf]",
+        header: "bg-gradient-to-r from-pink-500/10 to-teal-400/10 border-b-2 border-pink-400",
+        deck: "bg-[#fffef0]/90 border-t-2 border-teal-400 shadow-[0_-10px_0px_rgba(45,212,191,0.1)]",
+        accent: "pink",
+        button: "bg-white border-2 border-pink-200 text-pink-300 hover:border-pink-500 hover:text-pink-500 rounded-none",
+        buttonActive: "bg-teal-400 text-white border-2 border-teal-500 shadow-[4px_4px_0px_#f472b6] transform -translate-y-0.5",
+        keyWhite: "bg-white border-b-4 border-pink-200 hover:bg-pink-50",
+        keyWhiteActive: "bg-pink-400 border-pink-600",
+        keyBlack: "bg-teal-900 border-b-4 border-teal-700",
+        keyBlackActive: "bg-yellow-400 border-yellow-600",
+        bigButton: "bg-gradient-to-tr from-yellow-300 to-pink-500 text-white border-4 border-white shadow-[6px_6px_0px_#2dd4bf] rounded-full hover:rotate-3 transition-transform",
+        fontMain: "font-sans",
+        knobTrack: "bg-pink-100 border-2 border-pink-300 rounded-full",
+        knobFill: "bg-teal-400 border-r-2 border-teal-600"
+    },
+    NEOGRID: {
+        container: "font-arcade text-cyan-400",
+        panel: "bg-black/80 border-2 border-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.3)] rounded-lg",
+        panelTitle: "bg-pink-600 text-white border border-pink-400 px-2 uppercase text-xs shadow-[0_0_10px_#ec4899] font-bold tracking-widest",
+        header: "bg-black/90 border-b-2 border-cyan-500 shadow-[0_0_20px_rgba(6,182,212,0.4)]",
+        deck: "bg-black/90 border-t-2 border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.4)]",
+        accent: "purple",
+        button: "bg-black border border-cyan-500/40 text-cyan-500/60 hover:border-cyan-400 hover:text-cyan-300 hover:bg-cyan-900/20",
+        buttonActive: "bg-cyan-500 text-black border border-cyan-300 shadow-[0_0_15px_cyan]",
+        keyWhite: "bg-white border border-gray-400 hover:bg-gray-100",
+        keyWhiteActive: "bg-pink-500 border-pink-600 shadow-[0_0_20px_pink]",
+        keyBlack: "bg-purple-900 border border-purple-700",
+        keyBlackActive: "bg-cyan-400 border-cyan-300 shadow-[0_0_20px_cyan]",
+        bigButton: "rounded-lg border-2 border-purple-500 bg-black shadow-[0_0_15px_purple,inset_0_0_10px_purple] hover:bg-purple-900/30 text-purple-400 hover:text-purple-200",
+        fontMain: "font-arcade",
+        knobTrack: "bg-black border border-purple-500/50 rounded-full",
+        knobFill: "bg-gradient-to-t from-cyan-500 to-pink-500 shadow-[0_0_10px_pink]"
+    }
+};
+
 // --- STYLED COMPONENTS ---
 
-const Panel: React.FC<{ children: React.ReactNode, title?: React.ReactNode, className?: string, color?: string }> = ({ children, title, className = "", color = "cyan" }) => {
-    const borderClass = {
-        cyan: "border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.15)]",
-        pink: "border-pink-500 shadow-[0_0_10px_rgba(236,72,153,0.15)]",
-        yellow: "border-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.15)]",
-        purple: "border-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.15)]",
-        red: "border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.15)]"
-    }[color] || "border-cyan-500";
+const Panel: React.FC<{ children: React.ReactNode, title?: React.ReactNode, className?: string, theme: Theme }> = ({ children, title, className = "", theme }) => {
+    const s = THEMES[theme];
+    // Dynamic padding adjustment for NEOGRID
+    const padding = theme === 'NEOGRID' ? 'p-1.5' : 'p-2';
     
-    const bgTitle = {
-        cyan: "bg-cyan-900 text-cyan-100",
-        pink: "bg-pink-900 text-pink-100",
-        yellow: "bg-yellow-900 text-yellow-100",
-        purple: "bg-purple-900 text-purple-100",
-        red: "bg-red-900 text-red-100"
-    }[color] || "bg-cyan-900";
-
     return (
-        <div className={`relative bg-black/90 backdrop-blur-sm border-2 rounded-lg p-2 flex flex-col ${borderClass} ${className}`}>
+        <div className={`relative flex flex-col ${padding} ${s.panel} ${className}`}>
             {title && (
-                <div className={`absolute -top-2.5 left-2 px-1.5 text-[9px] font-black tracking-widest uppercase border border-black/50 ${bgTitle} rounded-sm`}>
+                <div className={`absolute -top-2.5 left-2 px-1.5 text-[9px] ${s.panelTitle}`}>
                     {title}
                 </div>
             )}
@@ -117,40 +344,62 @@ const Panel: React.FC<{ children: React.ReactNode, title?: React.ReactNode, clas
     );
 };
 
-const VolumeSlider: React.FC<{ value: number, onChange: (v: number) => void, vertical?: boolean, color?: string }> = ({ value, onChange, vertical = false, color = 'cyan' }) => {
-    const bgClass = {
-        cyan: 'bg-cyan-500 shadow-[0_0_10px_cyan]', 
-        pink: 'bg-pink-500 shadow-[0_0_10px_pink]', 
-        yellow: 'bg-yellow-500 shadow-[0_0_10px_yellow]', 
-        purple: 'bg-purple-500 shadow-[0_0_10px_purple]'
-    }[color] || 'bg-cyan-500';
+const Knob: React.FC<{
+    value: number;
+    min?: number;
+    max?: number;
+    onChange: (val: number) => void;
+    size?: number;
+    theme: Theme;
+    className?: string;
+}> = ({ value, min = 0, max = 1, onChange, size = 32, theme, className = "" }) => {
+    const s = THEMES[theme];
+    const [dragging, setDragging] = useState(false);
+    const [startY, setStartY] = useState(0);
+    const [startVal, setStartVal] = useState(0);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        setDragging(true);
+        setStartY(e.clientY);
+        setStartVal(value);
+    };
+
+    useEffect(() => {
+        if (!dragging) return;
+        const handleMove = (e: MouseEvent) => {
+            const dy = startY - e.clientY;
+            const range = 200; // pixels for full range
+            const diff = (dy / range) * (max - min);
+            let newVal = startVal + diff;
+            newVal = Math.max(min, Math.min(max, newVal));
+            onChange(newVal);
+        };
+        const handleUp = () => setDragging(false);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleUp);
+        };
+    }, [dragging, startY, startVal, min, max, onChange]);
+
+    // Calculate rotation: -135deg (min) to +135deg (max)
+    const percentage = (value - min) / (max - min);
+    const angle = -135 + (percentage * 270);
 
     return (
-        <div className={`relative flex items-center group ${vertical ? 'h-full w-8 justify-center' : 'w-full h-4'}`}>
-            {/* Track */}
-            <div className={`absolute bg-[#111] border border-[#333] rounded-full ${vertical ? 'w-2 h-full' : 'w-full h-2'}`} />
-            
-            {/* Fill */}
+        <div 
+            className={`relative rounded-full cursor-ns-resize ${s.knobTrack} ${className}`} 
+            style={{ width: size, height: size }}
+            onMouseDown={handleMouseDown}
+        >
             <div 
-                className={`absolute rounded-full ${bgClass} opacity-80 ${vertical ? 'w-2 bottom-0' : 'h-2 left-0'}`}
-                style={vertical ? { height: `${value * 100}%` } : { width: `${value * 100}%` }}
-            />
-            
-            <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={value} 
-                onChange={(e) => onChange(parseFloat(e.target.value))}
-                className={`absolute w-full h-full opacity-0 cursor-pointer z-20 ${vertical ? 'appearance-slider-vertical' : ''}`}
-            />
-            
-            {/* Thumb */}
-            <div 
-                className={`absolute w-3 h-3 bg-white border border-black shadow pointer-events-none transition-all duration-75 z-10 ${vertical ? 'left-1/2 -translate-x-1/2 mb-[-6px]' : 'top-1/2 -translate-y-1/2 ml-[-6px]'}`}
-                style={vertical ? { bottom: `${value * 100}%` } : { left: `${value * 100}%` }}
-            />
+                className={`absolute top-0 left-0 w-full h-full rounded-full transition-transform duration-75 ease-out`} 
+                style={{ transform: `rotate(${angle}deg)` }}
+            >
+                <div className={`absolute top-1 left-1/2 -translate-x-1/2 w-[15%] h-[30%] rounded-full ${s.knobFill}`} />
+            </div>
         </div>
     );
 };
@@ -166,13 +415,10 @@ const BurstDisplay: React.FC<{ burst: TriggerBurst }> = ({ burst }) => {
 
     return (
         <div className="absolute pointer-events-none z-[100]" style={{ left: burst.x, top: burst.y }}>
-             {/* Popup Score */}
              <div className="absolute -translate-x-1/2 -translate-y-full font-black text-2xl font-arcade animate-[float-up_0.8s_ease-out_forwards] stroke-black"
                   style={{ color: burst.color, textShadow: `2px 2px 0px black, 0 0 10px ${burst.color}` }}>
                   +{burst.val}
              </div>
-             
-             {/* Particles */}
              {particles.map(p => (
                  <div key={p.id} 
                       className="absolute rounded-full"
@@ -205,21 +451,30 @@ const UIOverlay: React.FC<Props> = ({
   onGrowl, currentGrowlName, onChop,
   userPatches, onLoadPatch, onBigSave, saveButtonText,
   nextSaveSlotIndex, isChaosLocked, onToggleChaosLock,
-  score, scorePopups, activePoints,
+  score, scorePopups,
   leaderboard, showHighScoreInput, onNameSubmit,
-  triggerSignal
+  triggerSignal, inputRef
 }) => {
   const [activeMouseNote, setActiveMouseNote] = useState<number | null>(null);
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [highScoreName, setHighScoreName] = useState('');
   const [bursts, setBursts] = useState<TriggerBurst[]>([]);
+  const [theme, setTheme] = useState<Theme>('CYBER');
 
   // Refs for Trigger Buttons to calculate position for feedback
   const chopRef = useRef<HTMLButtonElement>(null);
   const growlRef = useRef<HTMLButtonElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
   const chaosRef = useRef<HTMLButtonElement>(null);
+  
+  // Refs for Score Particle System
+  const scoreRef = useRef<HTMLDivElement>(null);
+  const particleCanvasRef = useRef<HTMLCanvasElement>(null);
+  const particlesRef = useRef<ScoreParticle[]>([]);
+  const requestRef = useRef<number | null>(null);
+
+  const s = THEMES[theme];
 
   // Keyboard Logic kept from original
   const NOTE_MAP: Record<string, number> = {
@@ -230,6 +485,87 @@ const UIOverlay: React.FC<Props> = ({
   const [selectedScale, setSelectedScale] = useState<keyof typeof SCALES>('Chromatic');
   const [rootNote, setRootNote] = useState(0); 
   
+  // --- SCORE PARTICLE SYSTEM ---
+  useEffect(() => {
+    const animateParticles = () => {
+        const canvas = particleCanvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!canvas || !ctx) return;
+
+        if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        let tx = canvas.width - 100; 
+        let ty = 100;
+        if (scoreRef.current) {
+            const rect = scoreRef.current.getBoundingClientRect();
+            tx = rect.left + rect.width / 2;
+            ty = rect.top + rect.height / 2;
+        }
+
+        if (isSounding && inputRef.current.x > -100) {
+            if (Math.random() > 0.6) {
+                const colors = ['#67e8f9', '#f472b6', '#facc15', '#a855f7'];
+                const p: ScoreParticle = {
+                    x: inputRef.current.x,
+                    y: inputRef.current.y,
+                    vx: (Math.random() - 0.5) * 8, 
+                    vy: (Math.random() - 0.5) * 8,
+                    val: Math.ceil(Math.random() * 9),
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    life: 1.0,
+                    scale: 0.5
+                };
+                particlesRef.current.push(p);
+            }
+        }
+
+        for (let i = particlesRef.current.length - 1; i >= 0; i--) {
+            const p = particlesRef.current[i];
+            const dx = tx - p.x;
+            const dy = ty - p.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            p.vx += dx * 0.005; 
+            p.vy += dy * 0.005;
+            p.vx *= 0.94;
+            p.vy *= 0.94;
+            p.x += p.vx;
+            p.y += p.vy;
+            
+            if (p.life > 0.8) {
+                p.scale += 0.1;
+                if(p.scale > 1.5) p.scale = 1.5;
+            } else {
+                p.scale *= 0.95;
+            }
+            
+            p.life -= 0.01;
+
+            if (p.life <= 0 || dist < 20) {
+                particlesRef.current.splice(i, 1);
+            } else {
+                ctx.font = `900 ${Math.floor(14 * p.scale)}px "Orbitron"`;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 10;
+                ctx.fillText(p.val.toString(), p.x, p.y);
+            }
+        }
+        
+        requestRef.current = requestAnimationFrame(animateParticles);
+    };
+
+    requestRef.current = requestAnimationFrame(animateParticles);
+    return () => {
+        if (requestRef.current) cancelAnimationFrame(requestRef.current);
+    };
+  }, [isSounding]);
+
+
   const triggerFeedback = useCallback((e: React.MouseEvent | React.TouchEvent, val: number, color: string) => {
       let clientX = 0;
       let clientY = 0;
@@ -241,7 +577,6 @@ const UIOverlay: React.FC<Props> = ({
           clientX = (e as React.MouseEvent).clientX;
           clientY = (e as React.MouseEvent).clientY;
       } else {
-          // Fallback if no coordinates (e.g. keypress simulated)
           const target = e.currentTarget as HTMLElement;
           const rect = target.getBoundingClientRect();
           clientX = rect.left + rect.width / 2;
@@ -253,7 +588,6 @@ const UIOverlay: React.FC<Props> = ({
       setTimeout(() => setBursts(prev => prev.filter(b => b.id !== id)), 800);
   }, []);
 
-  // Effect to handle external triggers from webcam motion
   useEffect(() => {
       if (triggerSignal) {
           const { index } = triggerSignal;
@@ -347,20 +681,63 @@ const UIOverlay: React.FC<Props> = ({
 
   const totalKeys = 36;
   const allKeys = Array.from({ length: totalKeys }, (_, i) => i);
-  const whiteKeys = allKeys.filter(i => [0, 2, 4, 5, 7, 9, 11].includes(i % 12));
-  const blackKeys = allKeys.filter(i => [1, 3, 6, 8, 10].includes(i % 12));
-  const numWhiteKeys = whiteKeys.length;
-
+  
   return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between overflow-hidden font-sans select-none text-gray-200">
+    <div className={`absolute inset-0 pointer-events-none flex flex-col justify-between overflow-hidden select-none ${s.container}`}>
       
-      {/* Scanline Overlay */}
+      {/* Scanline Overlay (Conditional) */}
       <style>{`
         .arcade-scanlines {
             background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
             background-size: 100% 4px;
             pointer-events: none;
             position: absolute; inset: 0; z-index: 50; opacity: 0.5;
+        }
+        .synthwave-grid {
+             background-image:
+                linear-gradient(rgba(236, 72, 153, 0.4) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(236, 72, 153, 0.4) 1px, transparent 1px);
+             background-size: 40px 40px;
+             perspective: 200px;
+             transform-style: preserve-3d;
+             position: absolute; bottom: 0; width: 100%; height: 50%; z-index: -1;
+             mask-image: linear-gradient(to bottom, transparent, black);
+        }
+        .atomic-pattern {
+             background-image: radial-gradient(#0d9488 15%, transparent 16%), radial-gradient(#0d9488 15%, transparent 16%);
+             background-size: 20px 20px;
+             background-position: 0 0, 10px 10px;
+             opacity: 0.15;
+             position: absolute; inset: 0; z-index: -1;
+        }
+        .brutalist-grid {
+            background-image: linear-gradient(black 2px, transparent 2px), linear-gradient(90deg, black 2px, transparent 2px);
+            background-size: 100px 100px;
+            opacity: 0.1;
+            position: absolute; inset: 0; z-index: -1;
+        }
+        .tron-grid {
+            background-image: linear-gradient(rgba(6,182,212,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.3) 1px, transparent 1px);
+            background-size: 40px 40px;
+            position: absolute; bottom: 0; width: 100%; height: 60%; z-index: -1;
+            transform: perspective(300px) rotateX(45deg) translateY(0);
+            mask-image: linear-gradient(to bottom, transparent, black);
+        }
+        .miami-gradient {
+            background: linear-gradient(135deg, rgba(236,72,153,0.1) 0%, rgba(45,212,191,0.1) 100%);
+            position: absolute; inset: 0; z-index: -1;
+        }
+        .future-mesh {
+            background-image: radial-gradient(circle at 1px 1px, rgba(99,102,241,0.15) 1px, transparent 0);
+            background-size: 20px 20px;
+            position: absolute; inset: 0; z-index: -1;
+        }
+        .neogrid-pattern {
+             background-image:
+                linear-gradient(rgba(168, 85, 247, 0.2) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(6, 182, 212, 0.2) 1px, transparent 1px);
+             background-size: 30px 30px;
+             position: absolute; inset: 0; z-index: -1;
         }
         .animate-rough-shake {
             animation: rough-shake 0.05s infinite;
@@ -382,19 +759,32 @@ const UIOverlay: React.FC<Props> = ({
             50% { transform: translateY(-40px) scale(1.2); opacity: 1; }
             100% { transform: translateY(-80px) scale(1); opacity: 0; }
         }
+        .clip-path-polygon { clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
       `}</style>
-      <div className="arcade-scanlines"></div>
+      
+      {theme === 'CYBER' && <div className="arcade-scanlines"></div>}
+      {theme === 'SYNTHWAVE' && <div className="synthwave-grid"></div>}
+      {theme === 'ATOMIC' && <div className="atomic-pattern"></div>}
+      {theme === 'BRUTALIST' && <div className="brutalist-grid"></div>}
+      {theme === 'TRON' && <div className="tron-grid"></div>}
+      {theme === 'MIAMI' && <div className="miami-gradient"></div>}
+      {theme === 'FUTURE' && <div className="future-mesh"></div>}
+      {theme === 'NEOGRID' && <div className="neogrid-pattern"></div>}
+      {theme === 'AERO' && <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 to-pink-500/10 pointer-events-none z-[-1]" />}
+
+      {/* --- CANVAS PARTICLE LAYER --- */}
+      <canvas ref={particleCanvasRef} className="absolute inset-0 pointer-events-none z-[100]" />
 
       {/* --- BURST OVERLAY --- */}
       {bursts.map(b => <BurstDisplay key={b.id} burst={b} />)}
 
       {/* --- RIGHT SIDEBAR (SCORE, FX, PRESETS) --- */}
-      <div className="absolute top-24 right-4 flex flex-col gap-4 items-end w-44 pointer-events-auto z-50">
+      <div className={`absolute top-24 right-4 flex flex-col ${theme === 'NEOGRID' ? 'gap-2' : 'gap-4'} items-end w-44 pointer-events-auto z-50`}>
            {/* Score Module */}
-           <div className="relative bg-black/90 border border-yellow-500/50 rounded p-2 px-3 shadow-[0_0_15px_rgba(234,179,8,0.2)] w-full">
+           <div ref={scoreRef} className={`relative w-full p-2 ${s.panel}`}>
                 <div className="flex flex-col items-end">
-                    <span className="text-[8px] text-yellow-600 font-bold uppercase tracking-widest mb-1">CREDITS</span>
-                    <span className="font-arcade text-yellow-400 text-xl drop-shadow-[0_0_5px_rgba(234,179,8,0.8)]">{score.toLocaleString().padStart(6, '0')}</span>
+                    <span className={`text-[8px] font-bold uppercase tracking-widest mb-1 opacity-70`}>CREDITS</span>
+                    <span className={`text-xl ${s.fontMain}`}>{score.toLocaleString().padStart(6, '0')}</span>
                 </div>
                 {/* Score Popups */}
                 <div className="absolute top-full right-0 w-32 pointer-events-none h-32 overflow-visible">
@@ -409,13 +799,13 @@ const UIOverlay: React.FC<Props> = ({
 
            {/* Leaderboard */}
            {leaderboard.length > 0 && (
-               <div className="w-full bg-black/80 border border-yellow-500/30 rounded p-2">
-                   <div className="text-[8px] text-yellow-600 font-bold uppercase tracking-widest mb-1 border-b border-yellow-500/20 pb-1">TOP PLAYERS</div>
+               <div className={`w-full p-2 ${s.panel}`}>
+                   <div className={`text-[8px] font-bold uppercase tracking-widest mb-1 pb-1 border-b border-current opacity-60`}>TOP PLAYERS</div>
                    <div className="flex flex-col gap-0.5">
                        {leaderboard.map((entry, i) => (
                            <div key={i} className="flex justify-between items-center text-[9px] font-mono">
-                               <span className="text-yellow-500/80">{i+1}. {entry.name}</span>
-                               <span className="text-yellow-100">{entry.score.toLocaleString()}</span>
+                               <span className="opacity-80">{i+1}. {entry.name}</span>
+                               <span className="font-bold">{entry.score.toLocaleString()}</span>
                            </div>
                        ))}
                    </div>
@@ -423,10 +813,10 @@ const UIOverlay: React.FC<Props> = ({
            )}
 
            {/* Spacer */}
-           <div className="h-8"></div>
+           <div className={`${theme === 'NEOGRID' ? 'h-2' : 'h-8'}`}></div>
 
            {/* FX Rack */}
-           <Panel className="w-full" title="FX UNIT" color="pink">
+           <Panel className="w-full" title="FX UNIT" theme={theme}>
                 <div className="grid grid-cols-2 gap-1">
                    {['delay','reverb','chorus','distortion','phaser','crunch'].map(fx => (
                        <button 
@@ -435,7 +825,7 @@ const UIOverlay: React.FC<Props> = ({
                               onToggleFx(fx as keyof FxState);
                               if (!fxState[fx as keyof FxState]) triggerFeedback(e, 50, '#ec4899'); 
                           }}
-                          className={`text-[8px] font-bold uppercase border rounded-[2px] px-1 py-0.5 transition-all ${fxState[fx as keyof FxState] ? 'bg-pink-500 border-pink-400 text-black shadow-[0_0_8px_rgba(236,72,153,0.8)]' : 'bg-black border-gray-800 text-gray-600 hover:border-gray-600'}`}
+                          className={`text-[8px] font-bold uppercase transition-all px-1 py-0.5 ${fxState[fx as keyof FxState] ? s.buttonActive : s.button}`}
                        >
                            {fx.substring(0,4)}
                        </button>
@@ -444,14 +834,14 @@ const UIOverlay: React.FC<Props> = ({
            </Panel>
 
            {/* Presets Grid */}
-           <Panel className="w-full" title="PATCHES" color="cyan">
+           <Panel className="w-full" title="PATCHES" theme={theme}>
                <div className="grid grid-cols-5 gap-1">
                     {userPatches.map((p, i) => (
                         <button 
                             key={i}
                             onClick={() => onLoadPatch(p!)}
                             disabled={!p}
-                            className={`w-6 h-6 rounded-[2px] flex items-center justify-center text-[9px] font-bold transition-all ${p ? 'bg-cyan-900 border border-cyan-500 text-cyan-200 hover:bg-cyan-700 shadow-[0_0_5px_rgba(6,182,212,0.5)]' : 'bg-black border border-gray-800 text-gray-800'}`}
+                            className={`w-6 h-6 flex items-center justify-center text-[9px] font-bold transition-all ${p ? s.buttonActive : s.button}`}
                         >
                             {i === 9 ? 0 : i + 1}
                         </button>
@@ -461,34 +851,55 @@ const UIOverlay: React.FC<Props> = ({
       </div>
 
       {/* --- HUD HEADER --- */}
-      <div className="relative flex justify-between items-start pointer-events-auto z-40 p-4 bg-gradient-to-b from-black/80 to-transparent min-h-[140px]">
+      <div className={`relative flex justify-between items-start pointer-events-auto z-40 p-4 min-h-[140px] ${s.header}`}>
           <div className="flex gap-4 items-start w-1/4">
              {/* Logo */}
              <div className="relative group cursor-pointer" onClick={(e) => { if(!isChaosLocked) { triggerFeedback(e, 250, '#d946ef'); onRandomize(); }}}>
-                 <div className="font-arcade text-3xl italic font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 tracking-tighter filter drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]">OOBLECK</div>
-                 <div className="text-[9px] font-bold text-gray-500 tracking-[0.5em] mt-1 ml-1">FLUID SYNTH</div>
+                 <div className={`italic font-black text-3xl tracking-tighter ${s.fontMain}`}>OOBLECK</div>
+                 <div className={`text-[9px] font-bold tracking-[0.5em] mt-1 ml-1 opacity-60`}>FLUID SYNTH</div>
+             </div>
+             
+             {/* UI Theme Switcher */}
+             <div className="grid grid-cols-6 gap-1 items-center mt-1">
+                 {(['CYBER', 'RETRO', 'AERO', 'CYBERPUNK', 'SYNTHWAVE', 'DREAM', 'ATOMIC', 'BRUTALIST', 'TRON', 'FUTURE', 'MIAMI', 'NEOGRID'] as Theme[]).map(th => (
+                     <button 
+                        key={th}
+                        onClick={() => setTheme(th)}
+                        className={`w-5 h-5 flex items-center justify-center rounded transition-all ${theme === th ? 'bg-white text-black scale-110 shadow-md' : 'bg-black/20 text-white/50 hover:bg-white/20'}`}
+                        title={th}
+                     >
+                         {th === 'CYBER' ? <Monitor size={10}/> : 
+                          th === 'RETRO' ? <Grid size={10}/> : 
+                          th === 'AERO' ? <Droplets size={10}/> :
+                          th === 'CYBERPUNK' ? <Zap size={10}/> :
+                          th === 'SYNTHWAVE' ? <Sunset size={10}/> :
+                          th === 'DREAM' ? <Cloud size={10}/> :
+                          th === 'ATOMIC' ? <Radio size={10}/> :
+                          th === 'BRUTALIST' ? <Square size={10}/> :
+                          th === 'TRON' ? <Disc size={10}/> :
+                          th === 'FUTURE' ? <Sparkles size={10}/> :
+                          th === 'MIAMI' ? <Waves size={10}/> :
+                          <Triangle size={10}/>
+                         }
+                     </button>
+                 ))}
              </div>
           </div>
 
-          {/* --- TOP CENTER ACTIONS (BIG NEON) --- */}
+          {/* --- TOP CENTER ACTIONS --- */}
           <div className="absolute left-1/2 -translate-x-1/2 top-6 w-full max-w-[486px] h-20 pointer-events-auto">
               {/* LOCK */}
               <button 
                 onClick={onToggleChaosLock} 
                 className="group flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform absolute right-1/2 mr-4"
               >
-                   <div className={`
-                       relative p-4 rounded-full border-4 transition-all duration-300 backdrop-blur-sm
-                       ${isChaosLocked 
-                           ? 'border-red-500 bg-red-900/20 shadow-[0_0_40px_rgba(239,68,68,0.6)]' 
-                           : 'border-green-400 bg-green-900/20 shadow-[0_0_20px_rgba(74,222,128,0.3)] group-hover:shadow-[0_0_40px_rgba(74,222,128,0.6)]'}
-                   `}>
+                   <div className={`relative p-4 transition-all duration-300 ${s.bigButton}`}>
                        {isChaosLocked ? 
-                           <Lock size={40} className="text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,1)]" /> : 
-                           <Unlock size={40} className="text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,1)]" />
+                           <Lock size={40} className="drop-shadow-md" /> : 
+                           <Unlock size={40} className="drop-shadow-md" />
                        }
                    </div>
-                   <span className={`font-arcade text-[12px] font-bold tracking-[0.2em] px-3 py-1 rounded bg-black/60 backdrop-blur-md border border-white/10 ${isChaosLocked ? 'text-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'text-green-400'}`}>
+                   <span className={`font-bold tracking-[0.2em] px-3 py-1 rounded text-[10px] bg-black/40 backdrop-blur-md ${isChaosLocked ? 'text-red-500' : 'text-green-400'}`}>
                        {isChaosLocked ? 'LOCKED' : 'UNLOCK'}
                    </span>
               </button>
@@ -498,21 +909,17 @@ const UIOverlay: React.FC<Props> = ({
                   onClick={(e) => { triggerFeedback(e, 2000, '#22d3ee'); onBigSave(); }}
                   className="group flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform absolute left-1/2 ml-4"
               >
-                   <div className="relative p-4 rounded-full border-4 border-cyan-400 bg-cyan-900/20 shadow-[0_0_30px_rgba(34,211,238,0.4)] group-hover:shadow-[0_0_50px_rgba(34,211,238,0.7)] transition-all backdrop-blur-sm">
-                       <ThumbsUp size={40} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,1)]" />
+                   <div className={`relative p-4 transition-all duration-300 ${s.bigButton}`}>
+                       <ThumbsUp size={40} className="drop-shadow-md" />
                        {/* Slot indicator bubble */}
-                       <div className="absolute -top-2 -right-2 w-7 h-7 bg-yellow-400 rounded-full flex items-center justify-center border-2 border-black text-black font-black text-xs shadow-[0_0_10px_rgba(234,179,8,0.8)]">
+                       <div className={`absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center font-black text-xs bg-black text-white border-2 border-white`}>
                           {nextSaveSlotIndex}
                        </div>
                    </div>
-                   <span className="font-arcade text-[12px] font-bold tracking-[0.2em] text-cyan-400 bg-black/60 backdrop-blur-md px-3 py-1 rounded border border-white/10 group-hover:text-cyan-200">
+                   <span className="font-bold tracking-[0.2em] px-3 py-1 rounded text-[10px] bg-black/40 backdrop-blur-md text-cyan-400">
                        SAVE
                    </span>
               </button>
-          </div>
-
-          <div className="flex gap-4 items-start w-1/4 justify-end">
-             {/* Sys Panel Removed */}
           </div>
       </div>
 
@@ -529,10 +936,10 @@ const UIOverlay: React.FC<Props> = ({
                         onClick={onToggleCamera} 
                         className={`group flex flex-col items-center justify-center gap-1 transition-all ${isCameraActive ? 'scale-110' : 'hover:scale-105 active:scale-95'}`}
                     >
-                            <div className={`p-4 rounded-full border-4 backdrop-blur-md transition-all duration-300 ${isCameraActive ? 'border-green-400 bg-green-500/20 shadow-[0_0_30px_green]' : 'border-green-500/50 bg-black/40 hover:border-green-400 hover:shadow-[0_0_20px_green]'}`}>
-                                <Camera size={32} className={isCameraActive ? "text-green-400 drop-shadow-[0_0_10px_white]" : "text-green-600 group-hover:text-green-400"} />
+                            <div className={`p-4 transition-all duration-300 ${s.bigButton} ${!isCameraActive && 'opacity-70'}`}>
+                                <Camera size={32} className="drop-shadow-md" />
                             </div>
-                            <span className={`font-arcade text-[10px] font-bold tracking-widest bg-black/60 px-2 py-0.5 rounded border border-green-500/30 ${isCameraActive ? 'text-green-400 shadow-[0_0_10px_green]' : 'text-green-700 group-hover:text-green-400'}`}>CAM</span>
+                            <span className="font-bold tracking-widest px-2 py-0.5 rounded text-[10px] bg-black/40 text-white">CAM</span>
                     </button>
 
                     {/* PLAY */}
@@ -540,10 +947,13 @@ const UIOverlay: React.FC<Props> = ({
                         onClick={handlePlayStop} 
                         className={`group flex flex-col items-center justify-center gap-1 transition-all ${drumSettings.enabled ? 'scale-110' : 'hover:scale-105 active:scale-95'}`}
                     >
-                            <div className={`p-4 rounded-full border-4 backdrop-blur-md transition-all duration-300 ${drumSettings.enabled ? 'border-pink-500 bg-pink-900/40 shadow-[0_0_30px_rgba(236,72,153,0.6)]' : 'border-pink-500/50 bg-black/40 hover:border-pink-400 hover:shadow-[0_0_20px_rgba(236,72,153,0.4)]'}`}>
-                                {drumSettings.enabled ? <Square size={32} className="text-pink-200 drop-shadow-[0_0_10px_white]" /> : <Play size={32} className="text-pink-600 group-hover:text-pink-400 ml-1" />}
+                            <div className={`p-4 transition-all duration-300 ${s.bigButton} ${!drumSettings.enabled && 'opacity-70'}`}>
+                                {drumSettings.enabled ? 
+                                    <Square size={32} className="drop-shadow-md" /> : 
+                                    <Play size={32} className="ml-1 drop-shadow-md" />
+                                }
                             </div>
-                            <span className={`font-arcade text-[10px] font-bold tracking-widest bg-black/60 px-2 py-0.5 rounded border border-pink-500/30 ${drumSettings.enabled ? 'text-pink-200 shadow-[0_0_10px_pink]' : 'text-pink-700 group-hover:text-pink-400'}`}>
+                            <span className="font-bold tracking-widest px-2 py-0.5 rounded text-[10px] bg-black/40 text-white">
                                 {drumSettings.enabled ? 'STOP' : 'PLAY'}
                             </span>
                     </button>
@@ -553,16 +963,15 @@ const UIOverlay: React.FC<Props> = ({
                         onClick={onToggleRecord} 
                         className={`group flex flex-col items-center justify-center gap-1 transition-all ${isRecording ? 'scale-110' : 'hover:scale-105 active:scale-95'}`}
                     >
-                            <div className={`p-4 rounded-full border-4 backdrop-blur-md transition-all duration-300 ${isRecording ? 'border-red-500 bg-red-600/20 shadow-[0_0_30px_red] animate-pulse' : 'border-red-500/50 bg-black/40 hover:border-red-400 hover:shadow-[0_0_20px_red]'}`}>
+                            <div className={`p-4 transition-all duration-300 ${s.bigButton} ${isRecording ? 'animate-pulse' : 'opacity-70'}`}>
                                 <div className={`w-8 h-8 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-900 group-hover:bg-red-500 transition-colors'}`} />
                             </div>
-                            <span className={`font-arcade text-[10px] font-bold tracking-widest bg-black/60 px-2 py-0.5 rounded border border-red-500/30 ${isRecording ? 'text-red-400 shadow-[0_0_10px_red]' : 'text-red-700 group-hover:text-red-400'}`}>REC</span>
+                            <span className="font-bold tracking-widest px-2 py-0.5 rounded text-[10px] bg-black/40 text-white">REC</span>
                     </button>
 
                </div>
 
                {/* MAIN CONTROL GRID (2x2) mapped to Webcam Zones */}
-               {/* Superimposed over video: Maximize area, transparent backgrounds */}
                <div className="w-full h-full grid grid-cols-2 grid-rows-2 gap-1 rounded-xl overflow-hidden">
                    
                    {/* TL: CHOP */}
@@ -573,10 +982,8 @@ const UIOverlay: React.FC<Props> = ({
                    >
                         <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                            <Scissors size={48} className="text-red-500 mb-1 drop-shadow-[0_0_8px_red]" />
-                           <span className="font-arcade text-2xl text-red-500 font-bold tracking-widest bg-black/40 px-2 rounded">CHOP</span>
+                           <span className={`${s.fontMain} text-2xl text-red-500 font-bold tracking-widest bg-black/40 px-2 rounded`}>CHOP</span>
                         </div>
-                        {/* Corners */}
-                        <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-red-500/30 group-hover:border-red-500 transition-colors" />
                    </button>
 
                    {/* TR: GROWL */}
@@ -587,10 +994,8 @@ const UIOverlay: React.FC<Props> = ({
                    >
                         <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                            <Skull size={48} className="text-yellow-500 mb-1 drop-shadow-[0_0_8px_yellow]" />
-                           <span className="font-arcade text-2xl text-yellow-500 font-bold tracking-widest bg-black/40 px-2 rounded">GROWL</span>
+                           <span className={`${s.fontMain} text-2xl text-yellow-500 font-bold tracking-widest bg-black/40 px-2 rounded`}>GROWL</span>
                         </div>
-                        {/* Corners */}
-                        <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-yellow-500/30 group-hover:border-yellow-500 transition-colors" />
                    </button>
 
                    {/* BL: BACK */}
@@ -601,10 +1006,8 @@ const UIOverlay: React.FC<Props> = ({
                    >
                         <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                            <RotateCcw size={48} className="text-cyan-500 mt-1 drop-shadow-[0_0_8px_cyan]" />
-                           <span className="font-arcade text-2xl text-cyan-500 font-bold tracking-widest bg-black/40 px-2 rounded">BACK</span>
+                           <span className={`${s.fontMain} text-2xl text-cyan-500 font-bold tracking-widest bg-black/40 px-2 rounded`}>BACK</span>
                         </div>
-                        {/* Corners */}
-                        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-cyan-500/30 group-hover:border-cyan-500 transition-colors" />
                    </button>
 
                    {/* BR: CHAOS */}
@@ -616,10 +1019,8 @@ const UIOverlay: React.FC<Props> = ({
                    >
                         <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                            <Wand2 size={48} className={`${isChaosLocked ? 'text-gray-500' : 'text-purple-500'} mt-1 drop-shadow-[0_0_8px_purple]`} />
-                           <span className={`font-arcade text-2xl font-bold tracking-widest bg-black/40 px-2 rounded ${isChaosLocked ? 'text-gray-500' : 'text-purple-500'}`}>CHAOS</span>
+                           <span className={`${s.fontMain} text-2xl font-bold tracking-widest bg-black/40 px-2 rounded ${isChaosLocked ? 'text-gray-500' : 'text-purple-500'}`}>CHAOS</span>
                         </div>
-                        {/* Corners */}
-                        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-purple-500/30 group-hover:border-purple-500 transition-colors" />
                    </button>
                </div>
                
@@ -674,45 +1075,45 @@ const UIOverlay: React.FC<Props> = ({
       )}
 
       {/* --- BOTTOM CYBERDECK (DASHBOARD) --- */}
-      <div className="pointer-events-auto z-40 w-full bg-zinc-950 border-t-4 border-cyan-600 shadow-[0_-10px_50px_rgba(0,0,0,0.9)] relative">
+      <div className={`pointer-events-auto z-40 w-full relative ${s.deck}`}>
           
-          {/* Deck Gradient Line */}
-          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 shadow-[0_0_10px_rgba(255,255,255,0.5)] z-10" />
+          {/* Deck Gradient Line (Cyber Only) */}
+          {theme === 'CYBER' && <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-cyan-500 via-purple-500 to-pink-500 shadow-[0_0_10px_rgba(255,255,255,0.5)] z-10" />}
 
           {/* Main Control Grid */}
-          <div className="grid grid-cols-12 divide-x divide-white/5 h-44 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')]">
+          <div className={`grid grid-cols-12 divide-x h-44 ${theme === 'CYBER' ? "bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] divide-white/5" : "bg-transparent divide-black/10"}`}>
               
               {/* CORE / GENESIS (2 Cols) */}
               <div className="col-span-2 p-3 flex flex-col gap-2 relative overflow-hidden">
-                  <div className="flex items-center gap-2 text-purple-400 mb-1">
-                      <Cpu size={14} className="animate-pulse" />
-                      <span className="text-[10px] font-black uppercase tracking-widest font-arcade">GENESIS</span>
+                  <div className="flex items-center gap-2 mb-1 opacity-80">
+                      <Cpu size={14} className={theme === 'CYBER' ? "animate-pulse" : ""} />
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${s.fontMain}`}>GENESIS</span>
                   </div>
                   
                   <div className="flex gap-1 mb-2">
                       <input 
-                          className="w-full bg-black border border-purple-900/50 rounded-sm px-2 text-[9px] font-mono text-purple-100 h-7 focus:outline-none focus:border-purple-500 placeholder:text-purple-900"
+                          className={`w-full text-[9px] font-mono h-7 focus:outline-none px-2 rounded-sm bg-black/20 border border-current opacity-70 focus:opacity-100 placeholder:opacity-50`}
                           placeholder="DESCRIBE SOUND..."
                           value={prompt}
                           onChange={(e) => setPrompt(e.target.value)}
                           onKeyDown={(e) => e.stopPropagation()}
                       />
-                      <button onClick={handleGenerate} disabled={isGenerating} className="bg-purple-900 border border-purple-700 w-8 h-7 flex items-center justify-center text-purple-200 rounded-sm hover:bg-purple-600 transition-colors">
+                      <button onClick={handleGenerate} disabled={isGenerating} className={`w-8 h-7 flex items-center justify-center transition-colors ${s.buttonActive}`}>
                           {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
                       </button>
                   </div>
 
-                  <div className="flex-1 bg-black/40 border border-white/5 rounded p-2 flex flex-col justify-center gap-2">
+                  <div className={`flex-1 flex flex-col justify-center gap-2 p-2 rounded border border-current opacity-80`}>
                       <div className="flex items-center gap-2">
-                          <span className="text-[8px] text-blue-400 font-bold w-8">VISC</span>
-                          <div className="flex-1 h-1.5 bg-gray-900 rounded-full overflow-hidden border border-gray-700">
-                              <div className="h-full bg-blue-500 shadow-[0_0_8px_blue]" style={{width: `${currentPreset.physics.viscosityBase * 100}%`}} />
+                          <span className="text-[8px] font-bold w-8 opacity-70">VISC</span>
+                          <div className={`flex-1 h-1.5 rounded-full overflow-hidden bg-black/20`}>
+                              <div className={`h-full bg-current`} style={{width: `${currentPreset.physics.viscosityBase * 100}%`}} />
                           </div>
                       </div>
                       <div className="flex items-center gap-2">
-                          <span className="text-[8px] text-orange-400 font-bold w-8">THICK</span>
-                          <div className="flex-1 h-1.5 bg-gray-900 rounded-full overflow-hidden border border-gray-700">
-                              <div className="h-full bg-orange-500 shadow-[0_0_8px_orange]" style={{width: `${currentPreset.physics.thickeningFactor * 100}%`}} />
+                          <span className="text-[8px] font-bold w-8 opacity-70">THICK</span>
+                          <div className={`flex-1 h-1.5 rounded-full overflow-hidden bg-black/20`}>
+                              <div className={`h-full bg-current`} style={{width: `${currentPreset.physics.thickeningFactor * 100}%`}} />
                           </div>
                       </div>
                   </div>
@@ -721,15 +1122,15 @@ const UIOverlay: React.FC<Props> = ({
               {/* SEQUENCER (5 Cols) */}
               <div className="col-span-5 p-3 flex flex-col relative">
                    <div className="flex items-center justify-between mb-2">
-                       <div className="flex items-center gap-2 text-pink-500">
+                       <div className="flex items-center gap-2 opacity-80">
                            <Drum size={14} />
-                           <span className="text-[10px] font-black uppercase tracking-widest font-arcade">RHYTHM CORE</span>
+                           <span className={`text-[10px] font-black uppercase tracking-widest ${s.fontMain}`}>RHYTHM CORE</span>
                        </div>
                        <div className="flex items-center gap-2">
-                           <div className="bg-black border border-pink-900/50 px-1.5 py-0.5 rounded text-[8px] text-pink-400 font-mono">
-                               BPM <span className="text-white font-bold">{arpSettings.bpm}</span>
+                           <div className={`px-1.5 py-0.5 rounded text-[8px] font-mono bg-black/20 border border-current`}>
+                               BPM <span className="font-bold">{arpSettings.bpm}</span>
                            </div>
-                           <button onClick={onToggleDrums} className={`h-4 px-2 rounded-full border flex items-center gap-1 transition-all ${drumSettings.enabled ? 'bg-pink-600 border-pink-400 text-white' : 'bg-black border-gray-700 text-gray-600'}`}>
+                           <button onClick={onToggleDrums} className={`h-4 px-2 rounded-full border flex items-center gap-1 transition-all ${drumSettings.enabled ? s.buttonActive : s.button}`}>
                                <Power size={8} />
                            </button>
                        </div>
@@ -746,7 +1147,7 @@ const UIOverlay: React.FC<Props> = ({
                                   onDrumChange({...drumSettings, genre, pattern: p.pattern.map(s=>({...s}))});
                                   onArpChange({...arpSettings, bpm: p.bpm});
                               }}
-                              className={`px-2 py-0.5 rounded-[2px] text-[8px] font-bold border transition-all ${drumSettings.genre === g ? 'bg-pink-500 border-pink-300 text-black shadow-[0_0_10px_rgba(236,72,153,0.4)]' : 'bg-transparent border-gray-800 text-gray-500 hover:text-gray-300'}`}
+                              className={`px-2 py-0.5 rounded-[2px] text-[8px] font-bold border transition-all ${drumSettings.genre === g ? s.buttonActive : 'border-transparent opacity-50 hover:opacity-100'}`}
                            >
                                {g}
                            </button>
@@ -757,13 +1158,11 @@ const UIOverlay: React.FC<Props> = ({
                    <div className="flex-1 flex flex-col gap-1 justify-center">
                        {(['kick', 'snare', 'hihat', 'clap'] as const).map(layer => (
                            <div key={layer} className="flex gap-0.5 h-full items-center">
-                               <div className="w-8 text-[7px] font-bold text-gray-500 uppercase text-right pr-2 tracking-wider">{layer.substring(0,3)}</div>
+                               <div className="w-8 text-[7px] font-bold uppercase text-right pr-2 tracking-wider opacity-60">{layer.substring(0,3)}</div>
                                <div className="flex-1 flex gap-px h-3">
                                    {drumSettings.pattern.map((step, i) => {
                                        const isOn = step[layer];
                                        const isCurrent = i === currentStep;
-                                       const color = layer === 'kick' ? 'bg-pink-500' : layer === 'snare' ? 'bg-cyan-500' : layer === 'hihat' ? 'bg-yellow-500' : 'bg-purple-500';
-                                       
                                        return (
                                            <button
                                               key={i}
@@ -772,7 +1171,7 @@ const UIOverlay: React.FC<Props> = ({
                                                   np[i] = {...np[i], [layer]: !np[i][layer]};
                                                   onDrumChange({...drumSettings, pattern: np});
                                               }}
-                                              className={`flex-1 transition-all relative overflow-hidden ${isOn ? `${color} shadow-[0_0_5px_currentColor]` : 'bg-[#151515]'} ${isCurrent ? 'brightness-200 z-10 scale-110' : ''}`}
+                                              className={`flex-1 transition-all relative overflow-hidden rounded-[1px] ${isOn ? s.buttonActive : 'bg-black/20'} ${isCurrent ? 'brightness-150 z-10 scale-110' : ''}`}
                                            />
                                        )
                                    })}
@@ -781,49 +1180,49 @@ const UIOverlay: React.FC<Props> = ({
                        ))}
                    </div>
                    
-                   <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/5">
+                   <div className="flex justify-between items-center mt-2 pt-2 border-t border-current/10">
                        <div className="flex gap-2">
-                           <select value={drumSettings.kit} onChange={(e) => onDrumChange({...drumSettings, kit: e.target.value as DrumKit})} className="bg-black text-pink-300 text-[9px] border border-pink-900/50 rounded px-1 py-0.5 outline-none hover:border-pink-500">
+                           <select value={drumSettings.kit} onChange={(e) => onDrumChange({...drumSettings, kit: e.target.value as DrumKit})} className="text-[9px] rounded px-1 py-0.5 outline-none bg-black/20 border border-current/50">
                                {DRUM_KITS.map(k => <option key={k} value={k}>{k}</option>)}
                            </select>
-                           <select value={drumSettings.fx} onChange={(e) => onDrumChange({...drumSettings, fx: e.target.value as DrumFX})} className="bg-black text-cyan-300 text-[9px] border border-cyan-900/50 rounded px-1 py-0.5 outline-none hover:border-cyan-500">
+                           <select value={drumSettings.fx} onChange={(e) => onDrumChange({...drumSettings, fx: e.target.value as DrumFX})} className="text-[9px] rounded px-1 py-0.5 outline-none bg-black/20 border border-current/50">
                                {DRUM_FX_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
                            </select>
                        </div>
                        
-                       <div className="flex items-center gap-2 bg-black/50 px-2 py-0.5 rounded-full border border-white/5">
-                           <Disc size={10} className="text-pink-500" />
-                           <input type="range" min="0" max="1" step="0.05" value={crossFader} onChange={(e) => onCrossFaderChange(parseFloat(e.target.value))} className="w-16 accent-white h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer" />
-                           <Waves size={10} className="text-cyan-500" />
+                       <div className="flex items-center gap-2 px-2 py-0.5 rounded-full border border-current/20 bg-black/10">
+                           <Disc size={10} className="opacity-70" />
+                           <Knob value={crossFader} onChange={onCrossFaderChange} theme={theme} size={20} className="mx-1" />
+                           <Waves size={10} className="opacity-70" />
                        </div>
                    </div>
               </div>
 
               {/* DYNAMICS (2 Cols) */}
               <div className="col-span-2 p-3 flex flex-col">
-                  <div className="flex items-center gap-2 text-orange-500 mb-2">
+                  <div className="flex items-center gap-2 mb-2 opacity-80">
                       <Activity size={14} />
-                      <span className="text-[10px] font-black uppercase tracking-widest font-arcade">GATING</span>
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${s.fontMain}`}>GATING</span>
                   </div>
                   
-                  <div className="flex-1 flex flex-col justify-center gap-3 bg-black/20 p-2 rounded border border-white/5">
+                  <div className="flex-1 flex flex-col justify-center gap-3 p-2 rounded border border-current/20 bg-black/10">
                       <div className="flex items-center justify-between">
-                          <span className="text-[8px] text-gray-500 font-bold">MODE</span>
-                          <button onClick={() => onGateChange({...gateSettings, enabled: !gateSettings.enabled})} className={`px-2 py-0.5 text-[8px] font-bold border rounded-[2px] transition-all ${gateSettings.enabled ? 'bg-orange-500 text-black border-orange-400 shadow-[0_0_10px_orange]' : 'bg-black border-gray-700 text-gray-600'}`}>
+                          <span className="text-[8px] font-bold opacity-60">MODE</span>
+                          <button onClick={() => onGateChange({...gateSettings, enabled: !gateSettings.enabled})} className={`px-2 py-0.5 text-[8px] font-bold transition-all ${gateSettings.enabled ? s.buttonActive : s.button}`}>
                               {gateSettings.enabled ? 'ON' : 'BYPASS'}
                           </button>
                       </div>
                       
                       <div>
-                          <div className="text-[8px] text-gray-500 mb-1">PATTERN</div>
-                          <select value={gateSettings.pattern} onChange={(e) => onGateChange({...gateSettings, pattern: e.target.value as GatePatternName})} className="w-full bg-black border border-orange-900/50 text-orange-400 text-[9px] rounded px-1 py-1 outline-none focus:border-orange-500">
+                          <div className="text-[8px] mb-1 opacity-60">PATTERN</div>
+                          <select value={gateSettings.pattern} onChange={(e) => onGateChange({...gateSettings, pattern: e.target.value as GatePatternName})} className="w-full text-[9px] rounded px-1 py-1 outline-none bg-black/20 border border-current/50">
                               {Object.keys(GATE_PATTERNS).map(p => <option key={p} value={p}>{p}</option>)}
                           </select>
                       </div>
 
                       <div className="grid grid-cols-4 gap-1">
                           {['1/4','1/8','1/16','1/32'].map(d => (
-                              <button key={d} onClick={() => onGateChange({...gateSettings, division: d as GateDivision})} className={`text-[7px] border rounded-[2px] py-1 transition-all ${gateSettings.division === d ? 'bg-orange-600 text-white border-orange-400' : 'bg-black border-gray-800 text-gray-600 hover:border-gray-600'}`}>
+                              <button key={d} onClick={() => onGateChange({...gateSettings, division: d as GateDivision})} className={`text-[7px] py-1 transition-all ${gateSettings.division === d ? s.buttonActive : s.button}`}>
                                   {d.substring(2)}
                               </button>
                           ))}
@@ -832,28 +1231,27 @@ const UIOverlay: React.FC<Props> = ({
               </div>
 
               {/* SYNTH (3 Cols) */}
-              <div className="col-span-3 p-3 flex flex-col">
-                  <div className="flex items-center gap-2 text-cyan-500 mb-2">
+              <div className={`col-span-3 ${theme === 'NEOGRID' ? 'p-1 gap-1' : 'p-3'} flex flex-col`}>
+                  <div className="flex items-center gap-2 mb-2 opacity-80">
                       <Sliders size={14} />
-                      <span className="text-[10px] font-black uppercase tracking-widest font-arcade">OSCILLATOR</span>
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${s.fontMain}`}>OSCILLATOR</span>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 flex-1">
+                  <div className={`grid grid-cols-3 ${theme === 'NEOGRID' ? 'gap-1' : 'gap-2'} flex-1`}>
                        {[1,2,3].map(i => {
                            const oscKey = `osc${i}Type` as keyof typeof currentPreset.audio;
                            const volKey = `osc${i}Vol` as keyof typeof currentPreset.audio;
                            
-                           // FIX: Safely access OSC type, defaulting if undefined
                            const rawType = currentPreset.audio[oscKey];
                            const typeStr = typeof rawType === 'string' ? rawType : 'sine';
 
                            return (
-                               <div key={i} className="flex flex-col items-center bg-black/40 border border-white/5 rounded p-1">
+                               <div key={i} className="flex flex-col items-center rounded p-1 border border-current/10 bg-black/10">
                                    <div className="flex-1 w-full flex justify-center py-2 relative">
-                                       <VolumeSlider vertical value={(currentPreset.audio[volKey] as number) || 0.5} onChange={(v) => onPresetChange({...currentPreset, audio: {...currentPreset.audio, [volKey]: v}})} />
+                                       <Knob value={(currentPreset.audio[volKey] as number) || 0.5} onChange={(v) => onPresetChange({...currentPreset, audio: {...currentPreset.audio, [volKey]: v}})} theme={theme} size={36} />
                                    </div>
                                    <button 
-                                      className="w-full mt-2 text-[8px] font-mono text-cyan-300 border border-cyan-900/50 bg-cyan-950/50 rounded py-0.5 hover:bg-cyan-900 hover:border-cyan-500 transition-colors uppercase"
+                                      className={`w-full mt-2 text-[8px] font-mono rounded py-0.5 transition-colors uppercase ${s.button}`}
                                       onClick={() => {
                                           const types = i === 3 ? ['sine','white','pink','brown'] : ['sine','square','sawtooth','triangle','noise','supersaw'];
                                           const next = types[(types.indexOf(typeStr) + 1) % types.length];
@@ -867,21 +1265,19 @@ const UIOverlay: React.FC<Props> = ({
                        })}
                   </div>
                   
-                  <div className="grid grid-cols-4 gap-2 mt-2 px-1">
+                  <div className={`grid grid-cols-4 gap-2 ${theme === 'NEOGRID' ? 'mt-1' : 'mt-2'} px-1`}>
                        {['attack','decay','sustain','release'].map(p => (
                            <div key={p} className="flex flex-col items-center group">
                                <div className="h-8 w-full relative flex items-center justify-center">
-                                   <input 
-                                      type="range" className="absolute w-full h-full opacity-0 cursor-pointer z-10"
-                                      min="0.01" max={p === 'release' ? 5 : 1} step="0.01"
+                                   <Knob 
                                       value={currentPreset.audio[p as keyof typeof currentPreset.audio] as number}
-                                      onChange={(e) => onPresetChange({...currentPreset, audio: {...currentPreset.audio, [p]: parseFloat(e.target.value)}})}
+                                      min={0.01} max={p === 'release' ? 5 : 1}
+                                      onChange={(v) => onPresetChange({...currentPreset, audio: {...currentPreset.audio, [p]: v}})}
+                                      theme={theme}
+                                      size={24}
                                    />
-                                   <div className="w-1 h-full bg-gray-800 rounded-full overflow-hidden">
-                                       <div className="w-full bg-cyan-500 absolute bottom-0" style={{height: `${(currentPreset.audio[p as keyof typeof currentPreset.audio] as number / (p==='release'?5:1))*100}%`}}></div>
-                                   </div>
                                </div>
-                               <span className="text-[6px] text-gray-500 mt-1 uppercase font-bold group-hover:text-cyan-400">{p.substring(0,1)}</span>
+                               <span className="text-[6px] mt-1 uppercase font-bold opacity-60">{p.substring(0,1)}</span>
                            </div>
                        ))}
                   </div>
@@ -889,57 +1285,71 @@ const UIOverlay: React.FC<Props> = ({
           </div>
           
           {/* KEYBOARD / BOTTOM STRIP */}
-          <div className="h-14 bg-[#080808] border-t border-white/10 flex items-end pb-1 px-1 relative z-20">
+          <div className={`h-14 border-t flex items-end pb-1 px-1 relative z-20 ${s.deck} border-t-0`}>
               
               {/* Controls Left */}
-              <div className="w-32 flex flex-col justify-center items-center px-2 gap-1 h-full border-r border-white/5 mr-1">
+              <div className="w-32 flex flex-col justify-center items-center px-2 gap-1 h-full border-r border-current/10 mr-1">
                   <div className="flex gap-1 w-full">
-                      <button onClick={() => onOctaveChange(octave - 1)} className="flex-1 bg-gray-900 text-gray-400 text-[8px] rounded border border-gray-700 hover:bg-gray-800 hover:text-white">-OCT</button>
-                      <div className="px-2 text-[10px] font-mono font-bold text-cyan-400 flex items-center">{octave > 0 ? `+${octave}` : octave}</div>
-                      <button onClick={() => onOctaveChange(octave + 1)} className="flex-1 bg-gray-900 text-gray-400 text-[8px] rounded border border-gray-700 hover:bg-gray-800 hover:text-white">+OCT</button>
+                      <button onClick={() => onOctaveChange(octave - 1)} className={`flex-1 text-[9px] py-1 rounded-sm font-bold border transition-colors ${s.button}`}>-OCT</button>
+                      <button onClick={() => onOctaveChange(octave + 1)} className={`flex-1 text-[9px] py-1 rounded-sm font-bold border transition-colors ${s.button}`}>+OCT</button>
                   </div>
-                  <select value={selectedScale} onChange={(e) => setSelectedScale(e.target.value as any)} className="w-full bg-black text-[9px] text-gray-400 border border-gray-800 rounded outline-none h-4">
-                      {Object.keys(SCALES).map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <div className="text-[9px] font-mono opacity-50">OCT AVE {octave > 0 ? `+${octave}` : octave}</div>
               </div>
-              
-              {/* Piano Keys */}
-              <div className="flex-1 relative flex items-end h-full gap-px select-none">
-                  {whiteKeys.map(k => {
-                       const isActive = activeMouseNote === k;
-                       return (
-                           <button 
-                              key={k} 
-                              onMouseDown={(e) => { triggerFeedback(e, 10, '#22d3ee'); onNotePlay(65.41 * Math.pow(2, quantizeNote(k)/12)); setActiveMouseNote(k); }}
-                              className={`h-full flex-1 rounded-b-[2px] border-b-4 transition-all duration-75 ${isActive ? 'bg-cyan-400 border-cyan-600 shadow-[0_0_20px_cyan] z-10 translate-y-px' : 'bg-gray-200 border-gray-400 hover:bg-white'}`}
-                           />
-                       )
-                  })}
-                  
-                  {/* Black Keys Absolute Positioning */}
-                  {blackKeys.map(k => {
-                       const isActive = activeMouseNote === k;
-                       const whiteIndex = whiteKeys.filter(w => w < k).length;
-                       const widthPct = (100 / numWhiteKeys) * 0.65; 
-                       const leftPct = (whiteIndex * (100 / numWhiteKeys)) - (widthPct / 2);
-                       
-                       return (
-                           <button
-                              key={k}
-                              onMouseDown={(e) => { triggerFeedback(e, 10, '#22d3ee'); onNotePlay(65.41 * Math.pow(2, quantizeNote(k)/12)); setActiveMouseNote(k); }}
-                              style={{ left: `calc(${leftPct}% + 1px)`, width: `${widthPct}%` }}
-                              className={`absolute top-0 h-[60%] rounded-b-[2px] border-b-4 border-x border-black z-20 transition-all duration-75 ${isActive ? 'bg-cyan-600 border-cyan-800 shadow-[0_0_15px_cyan] translate-y-px' : 'bg-black border-gray-800 hover:bg-gray-900'}`}
-                           />
-                       )
+
+              {/* Keys */}
+              <div className="flex-1 flex gap-0.5 h-full relative">
+                  {allKeys.map((k) => {
+                      const noteIndex = k % 12;
+                      const isBlack = [1, 3, 6, 8, 10].includes(noteIndex);
+                      const baseFreq = 65.41 * Math.pow(2, (k - 9 + (octave * 12)) / 12);
+                      const isActive = activeMouseNote === k;
+                      
+                      if (isBlack) return null;
+
+                      const nextIsBlack = [1, 3, 6, 8, 10].includes((noteIndex + 1) % 12);
+                      
+                      return (
+                          <div key={k} className="relative flex-1 h-full">
+                              {/* White Key */}
+                              <button
+                                 onMouseDown={() => { onNotePlay(baseFreq); setActiveMouseNote(k); }}
+                                 onMouseUp={() => setActiveMouseNote(null)}
+                                 onMouseLeave={() => setActiveMouseNote(null)}
+                                 className={`w-full h-full rounded-b-sm border-b-4 transition-colors ${isActive ? s.keyWhiteActive : s.keyWhite}`}
+                              />
+                              
+                              {/* Black Key Overlay */}
+                              {nextIsBlack && (
+                                  <button
+                                      onMouseDown={() => { 
+                                          const blackFreq = 65.41 * Math.pow(2, (k + 1 - 9 + (octave * 12)) / 12);
+                                          onNotePlay(blackFreq); 
+                                          setActiveMouseNote(k + 1); 
+                                      }}
+                                      onMouseUp={() => setActiveMouseNote(null)}
+                                      onMouseLeave={() => setActiveMouseNote(null)}
+                                      className={`absolute z-10 top-0 -right-1/4 w-1/2 h-3/5 rounded-b-sm border-b-4 transition-colors ${activeMouseNote === k + 1 ? s.keyBlackActive : s.keyBlack}`}
+                                  />
+                              )}
+                          </div>
+                      );
                   })}
               </div>
-              
-              {/* Master Volume */}
-              <div className="w-12 flex flex-col items-center justify-end h-full border-l border-white/5 ml-1 pb-1">
-                   <div className="h-8 w-4 mb-1">
-                       <VolumeSlider vertical value={synthVolume} onChange={onSynthVolumeChange} color="cyan" />
-                   </div>
-                   <span className="text-[6px] font-bold text-gray-600">VOL</span>
+
+              {/* Right Controls */}
+              <div className="w-32 flex flex-col justify-center items-center px-2 gap-1 h-full border-l border-current/10 ml-1">
+                  <div className="flex items-center gap-2">
+                       <span className="text-[8px] font-bold opacity-60">SCALE</span>
+                       <select value={selectedScale} onChange={(e) => setSelectedScale(e.target.value as any)} className="text-[9px] rounded px-1 outline-none bg-black/20 border border-current/20">
+                           {Object.keys(SCALES).map(s => <option key={s} value={s}>{s}</option>)}
+                       </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                       <span className="text-[8px] font-bold opacity-60">ROOT</span>
+                       <select value={rootNote} onChange={(e) => setRootNote(parseInt(e.target.value))} className="text-[9px] rounded px-1 outline-none bg-black/20 border border-current/20">
+                           {['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'].map((n, i) => <option key={n} value={i}>{n}</option>)}
+                       </select>
+                  </div>
               </div>
           </div>
       </div>
