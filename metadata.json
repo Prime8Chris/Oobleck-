@@ -1,5 +1,5 @@
 {
-  "name": "Oobleck: Non-Newtonian Synth",
+  "name": "Oobleck: Non-Newtonian Motion Synth",
   "description": "A generative audio synthesizer that mimics non-Newtonian fluid physics. Move slowly for liquid textures, strike fast for solid, abrasive sounds.",
   "requestFramePermissions": [
     "microphone",

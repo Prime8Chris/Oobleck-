@@ -228,7 +228,7 @@ const THEMES: Record<Theme, any> = {
         keyWhiteActive: "bg-teal-200 border-teal-700",
         keyBlack: "bg-teal-900 border-black",
         keyBlackActive: "bg-orange-500 border-orange-700",
-        bigButton: "bg-[#fdfbf7] border-4 border-teal-700 rounded-full shadow-[6px_6px_0px_rgba(13,148,136,0.2)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all",
+        bigButton: "bg-[#fdfbf7] border-4 border-teal-700 rounded-full shadow-[6px_6px_0px_rgba(13,148,136,0.2)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all",
         fontMain: "font-mono",
         knobTrack: "bg-[#d6d3c9] border border-teal-700 rounded-full",
         knobFill: "bg-red-500"
@@ -461,6 +461,7 @@ const UIOverlay: React.FC<Props> = ({
   const [highScoreName, setHighScoreName] = useState('');
   const [bursts, setBursts] = useState<TriggerBurst[]>([]);
   const [theme, setTheme] = useState<Theme>('CYBER');
+  const [activeTriggerIndex, setActiveTriggerIndex] = useState<number | null>(null);
 
   // Refs for Trigger Buttons to calculate position for feedback
   const chopRef = useRef<HTMLButtonElement>(null);
@@ -591,6 +592,11 @@ const UIOverlay: React.FC<Props> = ({
   useEffect(() => {
       if (triggerSignal) {
           const { index } = triggerSignal;
+          
+          // Set visual button trigger
+          setActiveTriggerIndex(index);
+          const timer = setTimeout(() => setActiveTriggerIndex(null), 300);
+
           let target: { ref: React.RefObject<HTMLButtonElement | null>, val: number, color: string } | null = null;
           
           if (index === 0) target = { ref: chopRef, val: 500, color: '#ef4444' };
@@ -607,6 +613,7 @@ const UIOverlay: React.FC<Props> = ({
                setBursts(prev => [...prev, { id, x, y, val: target.val, color: target.color }]);
                setTimeout(() => setBursts(prev => prev.filter(b => b.id !== id)), 800);
           }
+          return () => clearTimeout(timer);
       }
   }, [triggerSignal]);
 
@@ -783,7 +790,7 @@ const UIOverlay: React.FC<Props> = ({
            {/* Score Module */}
            <div ref={scoreRef} className={`relative w-full p-2 ${s.panel}`}>
                 <div className="flex flex-col items-end">
-                    <span className={`text-[8px] font-bold uppercase tracking-widest mb-1 opacity-70`}>CREDITS</span>
+                    <span className={`text-[8px] font-bold uppercase tracking-widest mb-1 opacity-70`}>SCORE</span>
                     <span className={`text-xl ${s.fontMain}`}>{score.toLocaleString().padStart(6, '0')}</span>
                 </div>
                 {/* Score Popups */}
@@ -856,7 +863,7 @@ const UIOverlay: React.FC<Props> = ({
              {/* Logo */}
              <div className="relative group cursor-pointer" onClick={(e) => { if(!isChaosLocked) { triggerFeedback(e, 250, '#d946ef'); onRandomize(); }}}>
                  <div className={`italic font-black text-3xl tracking-tighter ${s.fontMain}`}>OOBLECK</div>
-                 <div className={`text-[9px] font-bold tracking-[0.5em] mt-1 ml-1 opacity-60`}>FLUID SYNTH</div>
+                 <div className={`text-[9px] font-bold tracking-[0.5em] mt-1 ml-1 opacity-60`}>MOTION SYNTHESIZER</div>
              </div>
              
              {/* UI Theme Switcher */}
@@ -972,17 +979,19 @@ const UIOverlay: React.FC<Props> = ({
                </div>
 
                {/* MAIN CONTROL GRID (2x2) mapped to Webcam Zones */}
-               <div className="w-full h-full grid grid-cols-2 grid-rows-2 gap-1 rounded-xl overflow-hidden">
+               <div className="w-full h-full grid grid-cols-2 grid-rows-2 gap-2 p-2 rounded-3xl overflow-hidden">
                    
                    {/* TL: CHOP */}
                    <button 
                        ref={chopRef}
                        onClick={(e) => { triggerFeedback(e, 500, '#ef4444'); onChop(); }}
-                       className="group relative w-full h-full border-4 border-white/10 hover:border-red-500/80 bg-black/10 hover:bg-red-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px]"
+                       className={`group relative w-full h-full border-[8px] transition-all flex flex-col items-center justify-center rounded-3xl 
+                          ${activeTriggerIndex === 0 ? 'bg-red-600 border-red-500' : 'bg-transparent border-zinc-600 hover:border-red-500 hover:bg-zinc-800'}
+                          active:bg-red-600 active:border-red-500`}
                    >
-                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                           <Scissors size={48} className="text-red-500 mb-1 drop-shadow-[0_0_8px_red]" />
-                           <span className={`${s.fontMain} text-2xl text-red-500 font-bold tracking-widest bg-black/40 px-2 rounded`}>CHOP</span>
+                        <div className="flex flex-col items-center justify-center gap-2 transition-transform group-active:scale-95">
+                           <Scissors size={48} className="text-red-500 mb-1 opacity-100" />
+                           <span className={`${s.fontMain} text-2xl text-red-500 font-bold tracking-widest bg-black px-3 py-1 rounded-lg border border-red-500`}>CHOP</span>
                         </div>
                    </button>
 
@@ -990,11 +999,13 @@ const UIOverlay: React.FC<Props> = ({
                    <button 
                        ref={growlRef}
                        onClick={(e) => { triggerFeedback(e, 1000, '#eab308'); onGrowl(); }}
-                       className="group relative w-full h-full border-4 border-white/10 hover:border-yellow-500/80 bg-black/10 hover:bg-yellow-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px]"
+                       className={`group relative w-full h-full border-[8px] transition-all flex flex-col items-center justify-center rounded-3xl
+                          ${activeTriggerIndex === 1 ? 'bg-yellow-600 border-yellow-500' : 'bg-transparent border-zinc-600 hover:border-yellow-500 hover:bg-zinc-800'}
+                          active:bg-yellow-600 active:border-yellow-500`}
                    >
-                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                           <Skull size={48} className="text-yellow-500 mb-1 drop-shadow-[0_0_8px_yellow]" />
-                           <span className={`${s.fontMain} text-2xl text-yellow-500 font-bold tracking-widest bg-black/40 px-2 rounded`}>GROWL</span>
+                        <div className="flex flex-col items-center justify-center gap-2 transition-transform group-active:scale-95">
+                           <Skull size={48} className="text-yellow-500 mb-1 opacity-100" />
+                           <span className={`${s.fontMain} text-2xl text-yellow-500 font-bold tracking-widest bg-black px-3 py-1 rounded-lg border border-yellow-500`}>GROWL</span>
                         </div>
                    </button>
 
@@ -1002,11 +1013,13 @@ const UIOverlay: React.FC<Props> = ({
                    <button 
                        ref={backRef}
                        onClick={(e) => { triggerFeedback(e, 250, '#22d3ee'); onRevertPreset(); }}
-                       className="group relative w-full h-full border-4 border-white/10 hover:border-cyan-500/80 bg-black/10 hover:bg-cyan-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px]"
+                       className={`group relative w-full h-full border-[8px] transition-all flex flex-col items-center justify-center rounded-3xl
+                          ${activeTriggerIndex === 2 ? 'bg-cyan-600 border-cyan-500' : 'bg-transparent border-zinc-600 hover:border-cyan-500 hover:bg-zinc-800'}
+                          active:bg-cyan-600 active:border-cyan-500`}
                    >
-                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                           <RotateCcw size={48} className="text-cyan-500 mt-1 drop-shadow-[0_0_8px_cyan]" />
-                           <span className={`${s.fontMain} text-2xl text-cyan-500 font-bold tracking-widest bg-black/40 px-2 rounded`}>BACK</span>
+                        <div className="flex flex-col items-center justify-center gap-2 transition-transform group-active:scale-95">
+                           <RotateCcw size={48} className="text-cyan-500 mt-1 opacity-100" />
+                           <span className={`${s.fontMain} text-2xl text-cyan-500 font-bold tracking-widest bg-black px-3 py-1 rounded-lg border border-cyan-500`}>BACK</span>
                         </div>
                    </button>
 
@@ -1015,11 +1028,13 @@ const UIOverlay: React.FC<Props> = ({
                        ref={chaosRef}
                        onClick={(e) => { if(!isChaosLocked) { triggerFeedback(e, 250, '#d946ef'); onRandomize(); }}} 
                        disabled={isChaosLocked} 
-                       className={`group relative w-full h-full border-4 border-white/10 hover:border-purple-500/80 bg-black/10 hover:bg-purple-500/5 transition-all flex flex-col items-center justify-center backdrop-blur-[0px] ${isChaosLocked ? 'cursor-not-allowed' : ''}`}
+                       className={`group relative w-full h-full border-[8px] transition-all flex flex-col items-center justify-center rounded-3xl
+                          ${activeTriggerIndex === 3 ? 'bg-purple-600 border-purple-500' : isChaosLocked ? 'border-zinc-800 bg-transparent opacity-50 cursor-not-allowed' : 'bg-transparent border-zinc-600 hover:border-purple-500 hover:bg-zinc-800'}
+                          active:bg-purple-600 active:border-purple-500`}
                    >
-                        <div className="flex flex-col items-center justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                           <Wand2 size={48} className={`${isChaosLocked ? 'text-gray-500' : 'text-purple-500'} mt-1 drop-shadow-[0_0_8px_purple]`} />
-                           <span className={`${s.fontMain} text-2xl font-bold tracking-widest bg-black/40 px-2 rounded ${isChaosLocked ? 'text-gray-500' : 'text-purple-500'}`}>CHAOS</span>
+                        <div className="flex flex-col items-center justify-center gap-2 transition-transform group-active:scale-95">
+                           <Wand2 size={48} className={`${isChaosLocked ? 'text-gray-500' : 'text-purple-500'} mt-1 opacity-100`} />
+                           <span className={`${s.fontMain} text-2xl font-bold tracking-widest bg-black px-3 py-1 rounded-lg border ${isChaosLocked ? 'text-gray-500 border-gray-500/30' : 'text-purple-500 border-purple-500'}`}>CHAOS</span>
                         </div>
                    </button>
                </div>

@@ -320,6 +320,16 @@ const App: React.FC = () => {
   const handlePhysicsUpdate = useCallback((x: number, y: number, speed: number, hardness: number, isClicked: boolean) => {
     if (!audioEngineRef.current) return;
     
+    // Silence if high score screen is active
+    if (showHighScoreInput) {
+        audioEngineRef.current.modulate(x, y, 0, 0, false);
+        if (wasSoundingRef.current) {
+            setIsSounding(false);
+            wasSoundingRef.current = false;
+        }
+        return;
+    }
+    
     audioEngineRef.current.modulate(x, y, speed, hardness, isClicked);
     
     const isNowSounding = speed > 0.1 || isClicked || hardness > 0.1;
@@ -353,10 +363,11 @@ const App: React.FC = () => {
         pendingVisualEffectRef.current = randomEffect;
     }
 
-  }, [gateSettings.division, drumSettings.enabled]);
+  }, [gateSettings.division, drumSettings.enabled, showHighScoreInput]);
 
 
   const handleRevertPreset = useCallback(() => {
+      if (showHighScoreInput) return;
       addScore(250, "RUN BACK");
       if (previousPreset) {
           const tempPreset = preset;
@@ -386,10 +397,10 @@ const App: React.FC = () => {
           if (audioEngineRef.current) audioEngineRef.current.cancelGrowl();
       }
       setCurrentGrowlName(null);
-  }, [previousPreset, preset, fxState, gateSettings, addScore]);
+  }, [previousPreset, preset, fxState, gateSettings, addScore, showHighScoreInput]);
 
   const handleRandomize = useCallback(() => {
-    if (isChaosLocked) return;
+    if (isChaosLocked || showHighScoreInput) return;
     
     addScore(250, "CHAOS");
 
@@ -436,7 +447,7 @@ const App: React.FC = () => {
         setDrumSettings(prev => ({ ...prev, enabled: true }));
     }
 
-  }, [preset, fxState, drumSettings, gateSettings, isChaosLocked, addScore]);
+  }, [preset, fxState, drumSettings, gateSettings, isChaosLocked, addScore, showHighScoreInput]);
 
   const executeDropRevert = useCallback((type: 'GROWL' | 'CHOP') => {
       if (audioEngineRef.current) {
@@ -473,6 +484,7 @@ const App: React.FC = () => {
   }, [gateSettings]);
 
   const handleGrowl = useCallback(() => {
+      if (showHighScoreInput) return;
       addScore(1000, "GRRRR!");
       
       // SNAPSHOT CURRENT STATE
@@ -508,9 +520,10 @@ const App: React.FC = () => {
               executeDropRevert('GROWL');
           }, 1000);
       }
-  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore]);
+  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore, showHighScoreInput]);
 
   const handleChop = useCallback(() => {
+      if (showHighScoreInput) return;
       addScore(500, "CHOP");
       preGrowlGateSettings.current = gateSettings;
       preGrowlPreset.current = preset;
@@ -533,7 +546,7 @@ const App: React.FC = () => {
                executeDropRevert('CHOP');
           }, 1000);
       }
-  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore]);
+  }, [gateSettings, preset, fxState, drumSettings, executeDropRevert, addScore, showHighScoreInput]);
 
   useEffect(() => {
       if (currentStep === 0 && drumSettings.enabled && playState === PlayState.PLAYING) {
@@ -615,6 +628,8 @@ const App: React.FC = () => {
 
 
   const handleZoneTrigger = useCallback((zoneIdx: number, visualEffectIdx?: number) => {
+      if (showHighScoreInput) return;
+
       // VISUAL FEEDBACK TRIGGER
       setTriggerSignal({ index: zoneIdx, id: Date.now() });
 
@@ -640,7 +655,7 @@ const App: React.FC = () => {
               handleRandomize();
           }
       }
-  }, [handleChop, handleGrowl, handleRevertPreset, handleRandomize, drumSettings, isChaosLocked]);
+  }, [handleChop, handleGrowl, handleRevertPreset, handleRandomize, drumSettings, isChaosLocked, showHighScoreInput]);
 
   const handleManualGateChange = (s: GateSettings) => {
       setGateSettings(s);
@@ -649,8 +664,9 @@ const App: React.FC = () => {
   
   // Safe toggle for race conditions
   const handleToggleDrums = useCallback(() => {
+      if (showHighScoreInput) return;
       setDrumSettings(prev => ({ ...prev, enabled: !prev.enabled }));
-  }, []);
+  }, [showHighScoreInput]);
 
 
   return (
@@ -702,6 +718,7 @@ const App: React.FC = () => {
             addScore(50, "FX");
         }}
         onNotePlay={(f) => {
+            if (showHighScoreInput) return;
             if(audioEngineRef.current) {
                 audioEngineRef.current.setParams({...preset.audio, baseFreq: f});
                 audioEngineRef.current.trigger();

@@ -1,5 +1,7 @@
+
+
 import React, { useRef, useEffect, useState } from 'react';
-import { Camera, Activity } from 'lucide-react';
+import { ImageSegmenter, FilesetResolver } from '@mediapipe/tasks-vision';
 
 interface Props {
     isActive: boolean;
@@ -18,267 +20,350 @@ interface Props {
 const WebcamMotion: React.FC<Props> = ({ isActive, inputRef, onZoneTrigger }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const tempCanvasRef = useRef<HTMLCanvasElement>(null); 
+    const maskCanvasRef = useRef<HTMLCanvasElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const requestRef = useRef<number | null>(null);
+    const segmenterRef = useRef<ImageSegmenter | null>(null);
+    const lastVideoTimeRef = useRef<number>(-1);
+    const frameCountRef = useRef(0);
+    
     const [error, setError] = useState<string | null>(null);
+    const [isModelLoaded, setIsModelLoaded] = useState(false);
     const [motionLevel, setMotionLevel] = useState(0);
+    
+    // UI State for Visualization
     const [uiActiveZones, setUiActiveZones] = useState<boolean[]>([false, false, false, false]);
     const [uiZoneEnergy, setUiZoneEnergy] = useState<number[]>([0, 0, 0, 0]);
     
+    // Motion Logic Refs
     const zoneCooldowns = useRef<number[]>([0, 0, 0, 0]);
-    const lastGlobalTriggerTime = useRef<number>(0); 
     const activeZones = useRef<boolean[]>([false, false, false, false]);
     const zoneEnergy = useRef<number[]>([0, 0, 0, 0]); 
     const prevCentroid = useRef<{x: number, y: number} | null>(null);
     const smoothPos = useRef<{x: number, y: number} | null>(null);
-    const effectRotationRef = useRef<number>(0);
     const prevFrameDataRef = useRef<Uint8ClampedArray | null>(null);
     const lastUiUpdateRef = useRef<number>(0);
-    const prevZoneBrightnessRef = useRef<number[]>([128, 128, 128, 128]);
 
     const onZoneTriggerRef = useRef(onZoneTrigger);
     useEffect(() => { onZoneTriggerRef.current = onZoneTrigger; }, [onZoneTrigger]);
 
+    // Zone Styles Mapping: TL=Red(0), TR=Yellow(1), BL=Cyan(2), BR=Purple(3)
+    const ZONE_STYLES = [
+        { 
+            bar: 'bg-red-500', 
+            border: 'border-red-500/20',
+            active: 'bg-red-500/40 shadow-[inset_0_0_20px_rgba(239,68,68,0.4)]'
+        },
+        { 
+            bar: 'bg-yellow-500', 
+            border: 'border-yellow-500/20',
+            active: 'bg-yellow-500/40 shadow-[inset_0_0_20px_rgba(234,179,8,0.4)]'
+        },
+        { 
+            bar: 'bg-cyan-500', 
+            border: 'border-cyan-500/20',
+            active: 'bg-cyan-500/40 shadow-[inset_0_0_20px_rgba(6,182,212,0.4)]'
+        },
+        { 
+            bar: 'bg-purple-500', 
+            border: 'border-purple-500/20',
+            active: 'bg-purple-500/40 shadow-[inset_0_0_20px_rgba(168,85,247,0.4)]'
+        }
+    ];
+
+    // 1. Load Model
     useEffect(() => {
-        if (isActive) { startWebcam(); } else { stopWebcam(); setMotionLevel(0); setUiZoneEnergy([0,0,0,0]); }
+        let isMounted = true;
+        const createSegmenter = async () => {
+            try {
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+                );
+                if (!isMounted) return;
+                
+                const segmenter = await ImageSegmenter.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+                        delegate: "GPU"
+                    },
+                    runningMode: "VIDEO",
+                    outputCategoryMask: true,
+                    outputConfidenceMasks: false
+                });
+                
+                if (isMounted) {
+                    segmenterRef.current = segmenter;
+                    setIsModelLoaded(true);
+                }
+            } catch (e) {
+                console.error("Failed to load MediaPipe Segmenter", e);
+                if (isMounted) setError("AI Model Load Failed");
+            }
+        };
+        createSegmenter();
+        return () => { isMounted = false; segmenterRef.current?.close(); };
+    }, []);
+
+    // 2. Manage Webcam Stream
+    useEffect(() => {
+        if (isActive) { 
+            startWebcam(); 
+        } else { 
+            stopWebcam(); 
+            setUiZoneEnergy([0,0,0,0]); 
+            setMotionLevel(0);
+        }
         return () => stopWebcam();
     }, [isActive]);
-
-    useEffect(() => {
-        if (!isActive) return;
-        const interval = setInterval(() => { effectRotationRef.current = (effectRotationRef.current + 1) % 5; }, 3000);
-        return () => clearInterval(interval);
-    }, [isActive]);
-
-    useEffect(() => {
-        if (!tempCanvasRef.current) {
-            tempCanvasRef.current = document.createElement('canvas');
-            tempCanvasRef.current.width = 4;
-            tempCanvasRef.current.height = 3;
-        }
-    }, []);
 
     const startWebcam = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" } 
+                // Optimization: Request lower resolution to reduce load on source
+                video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: "user" }
             });
             streamRef.current = stream;
+            
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
                 videoRef.current.onloadedmetadata = () => {
                     videoRef.current?.play().catch(e => console.error("Play error", e));
-                    requestRef.current = requestAnimationFrame(processFrame);
+                    if (!requestRef.current) requestRef.current = requestAnimationFrame(processFrame);
                 };
             }
             setError(null);
         } catch (err) {
             console.error("Error accessing webcam:", err);
-            setError("Could not access camera.");
+            setError("Camera Access Denied");
         }
     };
 
     const stopWebcam = () => {
-        if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
-        if (requestRef.current) { cancelAnimationFrame(requestRef.current); }
+        if (streamRef.current) { 
+            streamRef.current.getTracks().forEach(track => track.stop()); 
+            streamRef.current = null; 
+        }
+        if (requestRef.current) { 
+            cancelAnimationFrame(requestRef.current); 
+            requestRef.current = null; 
+        }
     };
 
     const processFrame = (timestamp: number) => {
-        if (!isActive || !videoRef.current || !canvasRef.current) return;
+        requestRef.current = requestAnimationFrame(processFrame);
+        
         const video = videoRef.current;
         const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: false });
         
-        if (!ctx || video.readyState !== 4 || video.videoWidth === 0) {
-            requestRef.current = requestAnimationFrame(processFrame);
+        if (!isActive || !video || !canvas || video.readyState < 2) return;
+        
+        // Throttling: Only process every 3rd frame (approx 20 FPS)
+        frameCountRef.current++;
+        if (frameCountRef.current % 3 !== 0) return;
+
+        // Optimization: Analyze on a small grid (128x96)
+        // We set the canvas size to small; CSS scales it up for the preview
+        const analysisW = 128;
+        const analysisH = 96;
+
+        if (canvas.width !== analysisW) {
+             canvas.width = analysisW;
+             canvas.height = analysisH;
+        }
+
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+
+        // Fallback: If model isn't ready
+        if (!segmenterRef.current) {
+            ctx.clearRect(0, 0, analysisW, analysisH);
             return;
         }
 
-        const width = 64; 
-        const height = 48;
-        const midX = width / 2;
-        const midY = height / 2;
-        const vW = video.videoWidth;
-        const vH = video.videoHeight;
+        if (video.currentTime !== lastVideoTimeRef.current) {
+            lastVideoTimeRef.current = video.currentTime;
+            
+            segmenterRef.current.segmentForVideo(video, timestamp, (result) => {
+                if (result && result.categoryMask) {
+                    const { width, height } = result.categoryMask;
+                    const mask = result.categoryMask.getAsUint8Array();
 
-        if (canvas.width !== width) { canvas.width = width; canvas.height = height; }
+                    // Resize Intermediate Canvas to match mask dimensions
+                    if (!maskCanvasRef.current) maskCanvasRef.current = document.createElement('canvas');
+                    const maskCanvas = maskCanvasRef.current;
+                    if (maskCanvas.width !== width || maskCanvas.height !== height) {
+                        maskCanvas.width = width;
+                        maskCanvas.height = height;
+                    }
 
-        ctx.save(); ctx.scale(-1, 1); ctx.filter = 'none'; ctx.drawImage(video, -width, 0, width, height); ctx.restore();
+                    const maskCtx = maskCanvas.getContext('2d');
+                    if (!maskCtx) return;
+
+                    const imageData = maskCtx.createImageData(width, height);
+                    const data = imageData.data;
+
+                    // --- PIXEL LOOP: INVERTED SILHOUETTE ---
+                    for (let i = 0; i < mask.length; i++) {
+                        const isFg = mask[i] > 0; 
+                        const idx = i * 4;
+                        
+                        if (isFg) {
+                            // Person -> Transparent
+                            data[idx] = 0; data[idx + 1] = 0; data[idx + 2] = 0; data[idx + 3] = 0;   
+                        } else {
+                            // Background -> Cyan
+                            data[idx] = 0; data[idx + 1] = 255; data[idx + 2] = 255; data[idx + 3] = 255;
+                        }
+                    }
+
+                    maskCtx.putImageData(imageData, 0, 0);
+
+                    // --- DRAW TO MAIN (SMALL) CANVAS ---
+                    ctx.clearRect(0, 0, analysisW, analysisH);
+                    ctx.save();
+                    ctx.scale(-1, 1); // Mirror
+                    ctx.imageSmoothingEnabled = false; 
+                    // Draw mask scaled to analysis buffer
+                    ctx.drawImage(maskCanvas, -analysisW, 0, analysisW, analysisH);
+                    ctx.restore();
+
+                    // --- MOTION DETECTION (On Small Buffer) ---
+                    processMotion(ctx, analysisW, analysisH, timestamp);
+                }
+            });
+        }
+    };
+
+    const processMotion = (ctx: CanvasRenderingContext2D, width: number, height: number, timestamp: number) => {
+        // Read the rendered inverted silhouette from small buffer
+        const finalImage = ctx.getImageData(0, 0, width, height);
+        const data = finalImage.data;
         
-        const imageData = ctx.getImageData(0, 0, width, height);
-        const data = imageData.data;
-        const len = data.length;
-
+        const prevData = prevFrameDataRef.current;
         let sumX = 0; let sumY = 0; let changedPixelCount = 0;
         const zoneActivity = [0, 0, 0, 0];
-        const nextZoneSums = [0, 0, 0, 0];
-        const nextZoneCounts = [0, 0, 0, 0];
-        const prevData = prevFrameDataRef.current;
-        const currentZoneBrightness = prevZoneBrightnessRef.current;
+        const midX = width / 2;
+        const midY = height / 2;
+        const stride = 2; // Check every 2nd pixel (already low res)
 
-        for (let i = 0; i < len; i += 8) { 
-            const r = data[i]; const g = data[i+1]; const b = data[i+2];
-            const pixelIndex = i >>> 2;
-            const x = pixelIndex & 63; 
-            const y = pixelIndex >> 6; 
-            const zoneIdx = (x >= midX ? 1 : 0) + (y >= midY ? 2 : 0);
-            
-            nextZoneSums[zoneIdx] += r + g + b;
-            nextZoneCounts[zoneIdx]++;
+        for (let i = 0; i < data.length; i += 4 * stride) {
+             const alpha = data[i+3];
 
-            if (prevData) {
-                const zoneB = currentZoneBrightness[zoneIdx];
-                const normB = zoneB / 255;
-                const localThreshold = Math.max(12, Math.min(60, 10 + normB * 50));
-                const diff = Math.abs(r - prevData[i]) + Math.abs(g - prevData[i+1]) + Math.abs(b - prevData[i+2]);
-                
-                if (diff > localThreshold) {
-                    sumX += x; sumY += y; changedPixelCount++; zoneActivity[zoneIdx]++;
-                }
-            }
+             if (prevData) {
+                 const prevAlpha = prevData[i+3];
+                 const diff = Math.abs(alpha - prevAlpha);
+
+                 if (diff > 100) { 
+                     const idx = i / 4;
+                     const x = idx % width;
+                     const y = Math.floor(idx / width);
+                     
+                     sumX += x; 
+                     sumY += y; 
+                     changedPixelCount++;
+                     
+                     const zIdx = (x >= midX ? 1 : 0) + (y >= midY ? 2 : 0);
+                     zoneActivity[zIdx]++;
+                 }
+             }
         }
         
-        for(let z=0; z<4; z++) { if (nextZoneCounts[z] > 0) prevZoneBrightnessRef.current[z] = (nextZoneSums[z] / nextZoneCounts[z]) / 3; }
-
-        if (!prevFrameDataRef.current) prevFrameDataRef.current = new Uint8ClampedArray(data);
-        else prevFrameDataRef.current.set(data);
-        
-        if (changedPixelCount > 5) {
-            const currentCentroidX = sumX / changedPixelCount;
-            const currentCentroidY = sumY / changedPixelCount;
-            const screenX = (currentCentroidX / width) * window.innerWidth;
-            const screenY = (currentCentroidY / height) * window.innerHeight;
-            if (!smoothPos.current) smoothPos.current = { x: screenX, y: screenY };
-            const density = Math.min(changedPixelCount / 400, 1.0);
-            const smoothFactor = 0.1 + (density * 0.4); 
-            smoothPos.current.x = smoothPos.current.x * (1 - smoothFactor) + screenX * smoothFactor;
-            smoothPos.current.y = smoothPos.current.y * (1 - smoothFactor) + screenY * smoothFactor;
-            inputRef.current.x = smoothPos.current.x;
-            inputRef.current.y = smoothPos.current.y;
-            if (prevCentroid.current) {
-                const dx = smoothPos.current.x - ((prevCentroid.current.x / width) * window.innerWidth);
-                const dy = smoothPos.current.y - ((prevCentroid.current.y / height) * window.innerHeight);
-                const massMultiplier = 1 + (density * 2.0); 
-                inputRef.current.vx = dx * 0.5 * massMultiplier;
-                inputRef.current.vy = dy * 0.5 * massMultiplier;
-            }
-            prevCentroid.current = { x: currentCentroidX, y: currentCentroidY };
+        if (!prevFrameDataRef.current || prevFrameDataRef.current.length !== data.length) {
+             prevFrameDataRef.current = new Uint8ClampedArray(data);
         } else {
-            inputRef.current.vx *= 0.9; inputRef.current.vy *= 0.9;
+             prevFrameDataRef.current.set(data);
         }
 
-        const zoneTriggerThreshold = 0.85; 
-        const energyGain = 0.15; 
-        const energyDecay = 0.92; 
-        let zonesChanged = false;
+        // --- GLOBAL MOTION ---
+        if (changedPixelCount > 2) {
+            const cx = sumX / changedPixelCount;
+            const cy = sumY / changedPixelCount;
+            
+            // Map small buffer coords to window coords
+            const sx = (cx / width) * window.innerWidth;
+            const sy = (cy / height) * window.innerHeight;
+            
+             if (!smoothPos.current) smoothPos.current = { x: sx, y: sy };
+             smoothPos.current.x += (sx - smoothPos.current.x) * 0.2;
+             smoothPos.current.y += (sy - smoothPos.current.y) * 0.2;
+             
+             inputRef.current.x = smoothPos.current.x;
+             inputRef.current.y = smoothPos.current.y;
+             
+             if (prevCentroid.current) {
+                 inputRef.current.vx = (cx - prevCentroid.current.x) * (window.innerWidth / width) * 0.5; 
+                 inputRef.current.vy = (cy - prevCentroid.current.y) * (window.innerHeight / height) * 0.5;
+             }
+             prevCentroid.current = { x: cx, y: cy };
+        } else {
+             inputRef.current.vx *= 0.9;
+             inputRef.current.vy *= 0.9;
+        }
         
+        // --- ZONE TRIGGERS ---
         for(let i=0; i<4; i++) {
-            const zoneB = currentZoneBrightness[i];
-            const sensitivityBoost = Math.max(1.0, 3.5 - (zoneB / 50));
-            const zoneMaxPixels = 384; 
-            const activityLevel = Math.min((zoneActivity[i] / (zoneMaxPixels * 0.05)) * sensitivityBoost, 2.0);
-            zoneEnergy.current[i] += activityLevel * energyGain;
-            if (zoneEnergy.current[i] > 1.2) zoneEnergy.current[i] = 1.2;
-
-            if (zoneEnergy.current[i] > zoneTriggerThreshold && timestamp > zoneCooldowns.current[i] && timestamp > lastGlobalTriggerTime.current + 500) {
-                zoneCooldowns.current[i] = timestamp + 1500; 
-                lastGlobalTriggerTime.current = timestamp;
-                activeZones.current[i] = true;
-                zoneEnergy.current[i] -= 0.6; 
-                const effectIdx = (i + effectRotationRef.current) % 5;
-                onZoneTriggerRef.current(i, effectIdx);
-                zonesChanged = true;
-                setTimeout(() => { activeZones.current[i] = false; setUiActiveZones([...activeZones.current]); }, 300);
-            }
-            zoneEnergy.current[i] *= energyDecay;
-        }
-
-        const anyActive = activeZones.current.some(Boolean);
-        if (anyActive) {
-            ctx.save(); ctx.scale(-1, 1); 
-            for (let z = 0; z < 4; z++) {
-                if (!activeZones.current[z]) continue;
-                const midY = height / 2; const sy = Math.floor(z / 2) * midY; const col = z % 2; const destX = col === 0 ? -32 : -64;
-                const scaleX = vW / width; const scaleY = vH / height;
-                const sourceX = col === 0 ? 32 : 0; const sX_vid = sourceX * scaleX; const sY_vid = sy * scaleY;
-                const sW_vid = 32 * scaleX; const sH_vid = 24 * scaleY; const effectIdx = (z + effectRotationRef.current) % 5;
-
-                ctx.save();
-                if (effectIdx === 0) { ctx.filter = 'invert(1)'; ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24); }
-                else if (effectIdx === 1) { ctx.filter = 'hue-rotate(180deg) saturate(300%)'; ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24); }
-                else if (effectIdx === 2) {
-                    const tempCtx = tempCanvasRef.current?.getContext('2d');
-                    if (tempCtx && tempCanvasRef.current) {
-                        ctx.imageSmoothingEnabled = false;
-                        tempCtx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, 0, 0, 4, 3);
-                        ctx.drawImage(tempCanvasRef.current, 0, 0, 4, 3, destX, sy, 32, 24);
-                    }
-                }
-                else if (effectIdx === 3) {
-                    ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24);
-                    ctx.fillStyle = 'rgba(0,0,0,0.5)'; for(let ly=0; ly<24; ly+=2) ctx.fillRect(destX, sy + ly, 32, 1);
-                }
-                else if (effectIdx === 4) { ctx.filter = 'contrast(200%) saturate(200%)'; ctx.drawImage(video, sX_vid, sY_vid, sW_vid, sH_vid, destX, sy, 32, 24); }
-                ctx.restore();
-            }
-            ctx.restore();
+             // Lower threshold due to resolution
+             const threshold = (width * height) * 0.005;
+             const act = Math.min(zoneActivity[i] / threshold, 1.0);
+             
+             zoneEnergy.current[i] += act * 0.8;
+             if(zoneEnergy.current[i] > 1.2) zoneEnergy.current[i] = 1.2;
+             
+             if(zoneEnergy.current[i] > 0.8 && timestamp > zoneCooldowns.current[i]) {
+                 zoneCooldowns.current[i] = timestamp + 800;
+                 activeZones.current[i] = true;
+                 onZoneTriggerRef.current(i);
+                 setTimeout(() => { activeZones.current[i] = false; }, 300);
+             }
+             
+             zoneEnergy.current[i] *= 0.7;
         }
 
         const now = Date.now();
-        if (zonesChanged || now - lastUiUpdateRef.current > 50) { 
-            setMotionLevel(Math.min(changedPixelCount / 200, 1));
-            setUiZoneEnergy([...zoneEnergy.current]); 
-            if (zonesChanged) setUiActiveZones([...activeZones.current]);
-            lastUiUpdateRef.current = now;
+        if (now - lastUiUpdateRef.current > 100) {
+             setUiZoneEnergy([...zoneEnergy.current]);
+             setUiActiveZones([...activeZones.current]);
+             setMotionLevel(Math.min(changedPixelCount / 20, 1));
+             lastUiUpdateRef.current = now;
         }
-
-        requestRef.current = requestAnimationFrame(processFrame);
     };
 
     return (
-        <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-[-12px] z-20 transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
-            <div className="relative rounded-xl overflow-hidden border-2 border-green-500/30 shadow-[0_0_50px_rgba(34,197,94,0.1)] bg-black/10 w-[486px] h-[365px] group">
+        <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-[-12px] z-20 transition-all duration-300 ${isActive ? 'scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}>
+            <div className="relative rounded-3xl overflow-hidden border-2 border-cyan-500/30 shadow-[0_0_50px_rgba(6,182,212,0.1)] bg-transparent w-[486px] h-[365px] group">
                 
-                {/* Video & Canvas */}
                 <video ref={videoRef} className="hidden" playsInline muted />
-                <canvas ref={canvasRef} className="w-full h-full object-cover opacity-100" />
+                {/* CSS scales the small canvas up to fill the container */}
+                <canvas ref={canvasRef} className="w-full h-full object-cover rendering-pixelated" style={{imageRendering: 'pixelated'}} />
                 
-                {/* HUD Overlay Grid */}
-                <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none border border-green-500/20">
+                {!isModelLoaded && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                        <div className="text-cyan-500 font-mono text-xs animate-pulse">INITIALIZING AI...</div>
+                    </div>
+                )}
+                
+                <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none p-2 gap-2">
                     {[0,1,2,3].map(i => (
-                         <div key={i} className={`
-                            relative border border-green-500/10 transition-colors duration-100
-                            ${uiActiveZones[i] ? 'bg-green-500/20' : ''}
-                         `}>
-                             {/* Energy Bar for Zone */}
-                             <div className={`
-                                absolute bottom-0 w-full bg-green-500 transition-all duration-75
-                                ${i % 2 === 0 ? 'left-0' : 'right-0'}
-                             `} style={{ height: '2px', width: `${Math.min(uiZoneEnergy[i]*100, 100)}%` }} />
+                         <div key={i} className={`relative border-4 rounded-3xl transition-all duration-100 ${ZONE_STYLES[i].border} ${uiActiveZones[i] ? ZONE_STYLES[i].active : ''}`}>
+                             <div 
+                                className={`absolute bottom-4 ${ZONE_STYLES[i].bar} transition-all duration-75 ${i % 2 === 0 ? 'left-4' : 'right-4'} rounded-full`} 
+                                style={{ width: '12px', height: `${Math.min(uiZoneEnergy[i]*80, 80)}%` }} 
+                             />
                          </div>
                     ))}
                 </div>
 
-                {/* Center Crosshair */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-50">
-                    <div className="w-4 h-4 border border-green-500/50 rounded-full flex items-center justify-center">
-                        <div className="w-0.5 h-0.5 bg-green-500 rounded-full"></div>
+                    <div className="w-4 h-4 border border-cyan-500/50 rounded-full flex items-center justify-center">
+                        <div className="w-0.5 h-0.5 bg-cyan-500 rounded-full"></div>
                     </div>
-                    <div className="absolute w-full h-px bg-green-500/20"></div>
-                    <div className="absolute h-full w-px bg-green-500/20"></div>
                 </div>
                 
-                {/* Global Motion Bar */}
-                <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-green-500 to-emerald-300 transition-all duration-100 shadow-[0_0_5px_rgba(34,197,94,0.8)]" style={{ width: `${motionLevel * 100}%` }} />
-                
-                {/* Scanline */}
-                <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-10 background-size-[100%_2px,3px_100%] pointer-events-none opacity-20" />
+                <div className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-cyan-500 to-purple-500 transition-all duration-100" style={{ width: `${motionLevel * 100}%` }} />
             </div>
             
             {error && (
-                <div className="absolute top-full mt-2 text-[8px] text-red-400 bg-black/90 p-2 rounded border border-red-500 shadow-lg backdrop-blur-sm flex items-center gap-2">
-                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                <div className="absolute top-full mt-2 text-[8px] text-red-400 bg-black/90 p-2 rounded border border-red-500 shadow-lg backdrop-blur-sm">
                     {error}
                 </div>
             )}

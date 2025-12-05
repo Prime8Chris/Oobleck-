@@ -1,5 +1,5 @@
 {
-  "name": "oobleck:-non-newtonian-synth",
+  "name": "oobleck:-non-newtonian-motion-synth",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,7 +12,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "@google/genai": "^1.30.0",
-    "lucide-react": "^0.554.0"
+    "lucide-react": "^0.554.0",
+    "@mediapipe/tasks-vision": "0.10.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
